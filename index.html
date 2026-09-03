@@ -361,7 +361,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // チャットの未読バッジ用。「各生徒との最新のやり取り」と「コーチが最後にそのチャットを開いた時刻」を
   // 比較して、生徒からの新着でコーチがまだ見ていないものを未読として扱う
   var CHAT_ACTIVITY_KEY = "chat:latestActivity"; // { "<生徒名>": { lastMessageAt: <ms>, lastFrom: "coach"|"student" } }
-  var COACH_CHAT_LASTREAD_KEY = "coach:chatLastRead"; // { "<生徒名>": <コーチが最後に開いたms> }
+  // コーチと管理者(運営)は同じ「スタッフ側」だが、既読管理だけは別々に持つ。
+  // 1つのキーを共有すると、管理者が会員のチャットを開いただけでコーチ側も既読(未読バッジ消灯)になってしまい、
+  // コーチが実際にはまだ見ていないメッセージを見逃す事故につながるため
+  function chatLastReadKeyFor(role){ return role === "admin" ? "admin:chatLastRead" : "coach:chatLastRead"; }
 
   // iOS Safariは、ホーム画面に追加してそのアイコンから開いた状態(スタンドアロンモード)でないと
   // プッシュ通知の仕組み自体が使えない(2026年時点のApple仕様。通常のSafariタブでは不可)。
@@ -516,7 +519,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build TEST-AUTO"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0903-1919"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -790,9 +793,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
   // コーチが特定の生徒とのチャットを開いた時に呼ぶ。未読バッジを消すために使う
   function markChatReadByCoach(studentName){
-    getFreshJSON(COACH_CHAT_LASTREAD_KEY, {}, function(map){
+    var key = chatLastReadKeyFor(session.role);
+    getFreshJSON(key, {}, function(map){
       map[studentName] = Date.now();
-      setJSON(COACH_CHAT_LASTREAD_KEY, map);
+      setJSON(key, map);
     });
   }
   function formatMB(mb){ return mb >= 1024 ? (mb / 1024).toFixed(1) + "GB" : Math.round(mb) + "MB"; }
@@ -1236,7 +1240,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
       if (screenTitle === "Chat") {
         getJSON(CHAT_ACTIVITY_KEY, {}, function(activity){
-          getJSON(COACH_CHAT_LASTREAD_KEY, {}, function(lastRead){
+          getJSON(chatLastReadKeyFor(session.role), {}, function(lastRead){
             var unreadSet = {};
             filtered.forEach(function(s){
               var a = activity[s.name];
