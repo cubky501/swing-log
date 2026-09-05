@@ -519,7 +519,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0903-1919"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0905-1041"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -818,7 +818,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
   // ---- in-memory fallback store (window.storage が使えない環境向け) ----
 
-  function todayKey(){ var d = new Date(); return d.toISOString().slice(0,10); }
+  // toISOString()は常に世界標準時(UTC)基準の日付を返すため、日本時間の午前0時〜8時59分の間は
+  // UTC側ではまだ「前日」として扱われてしまい、「本日ログイン」の判定が1日ズレる不具合があった。
+  // このアプリは日本国内での利用のみを前提としているため、常に日本時間(JST, UTC+9)の日付を
+  // 返すよう修正している(現在時刻に9時間を足してからUTC表記にすることで、実質的に日本時間の日付になる)
+  function todayKey(){ return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0,10); }
   function todayLabel(){ return new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }); }
   function nowLabel(){ return new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }); }
   // 実際の日付同士の差分で「最後のログインから何日経ったか」を計算する(以前は配列の並びだけで
