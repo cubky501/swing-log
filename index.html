@@ -519,7 +519,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0905-1041"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0906-0847"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -838,9 +838,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     var set = {};
     (checkinDates || []).forEach(function(d){ if (typeof d === "string") set[d] = true; });
     var days = [];
+    // todayKey()と同じ考え方(日本時間基準)で計算する。ここだけ別ロジックでUTC基準のまま
+    // 残っていたため、日本時間の午前0時〜8時59分にヒートマップの右端(今日)がズレる不具合があった
+    var jstNow = Date.now() + 9 * 60 * 60 * 1000;
     for (var i = 13; i >= 0; i--) {
-      var d = new Date();
-      d.setUTCDate(d.getUTCDate() - i);
+      var d = new Date(jstNow - i * 86400000);
       var key = d.toISOString().slice(0, 10);
       days.push({ key: key, active: !!set[key] });
     }
