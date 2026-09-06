@@ -519,7 +519,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0906-0847"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0906-1706"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1010,7 +1010,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
               '</div>' +
               '<div class="field"><label>教室</label><div class="loc-tags">' +
                 LOCATIONS.map(function(loc){ return '<button type="button" class="loc-tag' + (st.location === loc ? " on" : "") + '" data-loc="' + esc(loc) + '">' + esc(loc) + '</button>'; }).join("") +
-              '</div></div>'
+              '</div></div>' +
+              '<div class="hint" style="margin:-6px 0 14px;">初めての方は、先にコーチから会員登録を受けてからログインしてください。</div>'
             : st.tab === "coach"
             ? '<div style="display:flex;gap:10px;">' +
                 '<div class="field" style="flex:1;"><label>姓</label><input type="text" value="' + esc(COACH_LAST_NAME) + '" disabled style="opacity:.7"></div>' +
@@ -1096,6 +1097,15 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         }
         hashPin(st.pin).then(function(hashed){
           if (users[key] === undefined) {
+            // 会員タブは、コーチが「+ 会員登録」で事前に登録した人だけがPINを新規設定できるようにする。
+            // 見知らぬ名前を名乗るだけで、誰でも勝手に新しい会員として登録されてしまう穴を塞ぐための対応。
+            // コーチ・管理者タブはこれまで通り(最初にログインした人がその枠を確定させる)
+            if (st.tab === "student" && !studentDoc) {
+              st.busy = false;
+              st.error = "この名前はまだ登録されていません。コーチに会員登録を依頼してください。";
+              renderLogin();
+              return;
+            }
             users[key] = hashed;
             setJSON(USERS_KEY, users);
             proceed();
