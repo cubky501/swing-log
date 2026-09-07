@@ -241,6 +241,7 @@
   .navitem span{font-size:11px;}
   .fab-stack{position:fixed;top:calc(12px + env(safe-area-inset-top));right:12px;z-index:15;display:flex;flex-direction:row;gap:8px;align-items:center;}
   .pin-fab{background:rgba(27,33,26,.85);border:1px solid var(--line);color:var(--sand);font-family:monospace;font-size:10.5px;padding:5px 10px;border-radius:999px;}
+  .notif-stale{background:rgba(201,105,79,.16);border-color:var(--danger);color:var(--danger);font-weight:700;}
   /* 今どちらの立場でログイン中か(コーチ本人 or 管理者(運営))を、常に一目で分かるようにするラベル。
      見た目が同じ2つのログインを間違えて、意図しない名義で操作してしまう事故を防ぐための表示 */
   .role-badge{font-weight:700;pointer-events:none;}
@@ -400,12 +401,39 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           // 今の運用規模ではこちらを優先する)
           map[myName] = [token];
           setJSON(FCM_TOKENS_KEY, map);
+          notifStatus = "on";
           if (onDone) onDone(null);
         });
       }).catch(function(e){
         console.error("通知の有効化に失敗", e);
         if (onDone) onDone(e);
       });
+    });
+  }
+
+  // ===== 通知の「本当の」有効状態を確認する =====
+  // 今までは「ブラウザ側で通知が許可されているか」だけを見て「有効」と表示していたが、
+  // 実際にはFirestore側の登録が別の端末に上書きされていたり、トークンが古くなって無効になっている
+  // ケースがあり、その場合は許可済みでも実際には通知が届かない。ここでは
+  // 「この端末の現在のトークン」と「Firestoreに登録されている内容」を突き合わせて、本当に
+  // 有効な状態かどうかを判定する
+  var notifStatus = "unknown"; // "unknown" | "off" | "on" | "stale"(許可はあるが登録が古い/別端末に上書きされている)
+  function checkNotifStatus(myName, cb){
+    if (!notificationsAvailable()) { notifStatus = "off"; if (cb) cb(); return; }
+    if (Notification.permission !== "granted") { notifStatus = "off"; if (cb) cb(); return; }
+    isSupported().then(function(supported){
+      if (!supported) { notifStatus = "off"; if (cb) cb(); return; }
+      navigator.serviceWorker.getRegistration("/firebase-messaging-sw.js").then(function(reg){
+        if (!reg) { notifStatus = "stale"; if (cb) cb(); return; } // 許可はあるがService Worker未登録
+        var messaging = getMessaging(fbApp);
+        getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
+          getJSON(FCM_TOKENS_KEY, {}, function(map){
+            var registered = (map[myName] || [])[0];
+            notifStatus = (token && registered === token) ? "on" : "stale";
+            if (cb) cb();
+          });
+        }).catch(function(){ notifStatus = "stale"; if (cb) cb(); });
+      }).catch(function(){ notifStatus = "stale"; if (cb) cb(); });
     });
   }
 
@@ -519,7 +547,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0907-1133"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0907-1140"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1414,6 +1442,27 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
 
   /* ================= SHELL ================= */
+  // 通知ボタンの表示。checkNotifStatus()で判定した3状態を反映する。
+  // "stale"(許可はあるがFirestore側の登録が古い・別端末に上書きされている)の場合は、
+  // 「有効」と見せかけて実は届かない、という事故を防ぐため、はっきり分かる見た目にする
+  function notifBtnHtml(){
+    if (Notification.permission !== "granted") return '<button id="notif-btn" class="pin-fab">🔔 通知</button>';
+    if (notifStatus === "stale") return '<button id="notif-btn" class="pin-fab notif-stale">⚠️ 通知要再設定</button>';
+    return '<button id="notif-btn" class="pin-fab">🔔 有効</button>';
+  }
+  function wireNotifBtn(){
+    var notifBtn = document.getElementById("notif-btn");
+    if (!notifBtn) return;
+    notifBtn.onclick = function(){
+      notifBtn.disabled = true;
+      notifBtn.textContent = "設定中…";
+      enableNotifications(session.name, function(err){
+        notifBtn.disabled = false;
+        if (err) { notifBtn.textContent = "🔔 通知"; alert("通知を有効にできませんでした: " + err.message); }
+        else { notifBtn.textContent = "🔔 有効"; alert("通知を有効にしました。新しいチャットが届くとお知らせします。"); }
+      });
+    };
+  }
   function renderShell(){
     var tabs = isStaff()
       ? [{ id: "lesson", label: "レッスン" }, { id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }, { id: "roster", label: "会員管理" }]
@@ -1427,7 +1476,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '<div class="phone">' +
         '<div class="fab-stack">' +
           (isStaff() ? '<span class="pin-fab role-badge' + (session.role === "admin" ? " role-badge-admin" : "") + '">' + (session.role === "admin" ? "管理者" : "コーチ") + '</span>' : '') +
-          (notificationsAvailable() ? '<button id="notif-btn" class="pin-fab">' + (Notification.permission === "granted" ? "🔔 有効" : "🔔 通知") + '</button>' :
+          (notificationsAvailable() ? notifBtnHtml() :
             (FCM_VAPID_KEY && isIOS() && !isStandaloneMode() ? '<span class="pin-fab" style="opacity:.75;">🔔 要ホーム画面追加</span>' : '')) +
           '<button id="pin-change-btn" class="pin-fab">PIN</button>' +
         '</div>' +
@@ -1450,16 +1499,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     if (isStaff()) wireStudentFormSheet();
     if (isStaff()) wireCoachProfileSheet();
     if (isStaff()) wireRenameSheet();
-    var notifBtn = document.getElementById("notif-btn");
-    if (notifBtn) notifBtn.onclick = function(){
-      notifBtn.disabled = true;
-      notifBtn.textContent = "設定中…";
-      enableNotifications(session.name, function(err){
-        notifBtn.disabled = false;
-        if (err) { notifBtn.textContent = "🔔 通知"; alert("通知を有効にできませんでした: " + err.message); }
-        else { notifBtn.textContent = "🔔 有効"; alert("通知を有効にしました。新しいチャットが届くとお知らせします。"); }
-      });
-    };
+    wireNotifBtn();
 
     var screen = document.getElementById("screen");
     if (tab === "mypage") renderMyPage(screen);
@@ -3664,6 +3704,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   render();
   if (session && session.role === "student") recordCheckin(session.name, function(){});
   setupForegroundNotifications();
+  // 通知ボタンの表示を「本当に有効かどうか」の判定結果に更新する(起動直後は一旦仮の表示のまま
+  // 出しているので、判定が終わり次第、必要であれば正しい見た目に差し替える)
+  if (session) {
+    checkNotifStatus(session.name, function(){
+      var btn = document.getElementById("notif-btn");
+      if (btn) { btn.outerHTML = notifBtnHtml(); wireNotifBtn(); }
+    });
+  }
   // アプリを新しく起動した場合(通知をタップして開いた場合など)は「裏から前面に戻ってきた」という
   // 変化が発生しないため、visibilitychangeのイベントが一度も起きずバッジが消えないことがあった。
   // 起動した瞬間に必ず1回、無条件でバッジをクリアしておく
