@@ -410,6 +410,17 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       });
     });
   }
+  // 通知を無効化する。ブラウザ・OS側の「許可」設定自体は本人にしか取り消せないため、
+  // ここでは「Firestore側の登録を削除する」ことで、実質的に通知が届かない状態にする
+  // (通知ボタンを押し直せば、この端末をまた登録し直して再度有効にできる)
+  function disableNotifications(myName, onDone){
+    getFreshJSON(FCM_TOKENS_KEY, {}, function(map){
+      delete map[myName];
+      setJSON(FCM_TOKENS_KEY, map);
+      notifStatus = "off";
+      if (onDone) onDone(null);
+    });
+  }
 
   // ===== 通知の「本当の」有効状態を確認する =====
   // 今までは「ブラウザ側で通知が許可されているか」だけを見て「有効」と表示していたが、
@@ -429,7 +440,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
           getJSON(FCM_TOKENS_KEY, {}, function(map){
             var registered = (map[myName] || [])[0];
-            notifStatus = (token && registered === token) ? "on" : "stale";
+            // 登録が全く無い場合(一度も有効にしていない、または手動で無効化した)は「壊れている」わけ
+            // ではないので、区別して"off"として扱う。登録はあるのに現在のトークンと食い違う場合だけ
+            // 「本来は有効なはずが実際には届かない状態」として"stale"にする
+            if (!registered) notifStatus = "off";
+            else notifStatus = (token && registered === token) ? "on" : "stale";
             if (cb) cb();
           });
         }).catch(function(){ notifStatus = "stale"; if (cb) cb(); });
@@ -547,7 +562,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0907-1140"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0907-1218"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1444,22 +1459,42 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   /* ================= SHELL ================= */
   // 通知ボタンの表示。checkNotifStatus()で判定した3状態を反映する。
   // "stale"(許可はあるがFirestore側の登録が古い・別端末に上書きされている)の場合は、
-  // 「有効」と見せかけて実は届かない、という事故を防ぐため、はっきり分かる見た目にする
+  // 「有効」と見せかけて実は届かない、という事故を防ぐため、はっきり分かる見た目にする。
+  // "on"の状態からタップした場合は、有効化ではなく無効化の操作になる(wireNotifBtn側で分岐)
   function notifBtnHtml(){
     if (Notification.permission !== "granted") return '<button id="notif-btn" class="pin-fab">🔔 通知</button>';
     if (notifStatus === "stale") return '<button id="notif-btn" class="pin-fab notif-stale">⚠️ 通知要再設定</button>';
-    return '<button id="notif-btn" class="pin-fab">🔔 有効</button>';
+    if (notifStatus === "on") return '<button id="notif-btn" class="pin-fab">🔔 有効</button>';
+    return '<button id="notif-btn" class="pin-fab">🔔 通知</button>'; // 許可はあるが未登録(初回、または手動で無効化した状態)
   }
   function wireNotifBtn(){
     var notifBtn = document.getElementById("notif-btn");
     if (!notifBtn) return;
     notifBtn.onclick = function(){
       notifBtn.disabled = true;
+      if (notifStatus === "on") {
+        // 既に有効な状態からタップした場合は「無効化」の操作として扱う
+        if (!confirm("通知を無効にしますか?この端末には、新しいチャットが届いても通知されなくなります。")) {
+          notifBtn.disabled = false;
+          return;
+        }
+        notifBtn.textContent = "設定中…";
+        disableNotifications(session.name, function(err){
+          notifBtn.disabled = false;
+          if (err) { alert("無効化に失敗しました: " + err.message); notifBtn.textContent = "🔔 有効"; return; }
+          notifBtn.outerHTML = notifBtnHtml();
+          wireNotifBtn();
+          alert("通知を無効にしました。");
+        });
+        return;
+      }
       notifBtn.textContent = "設定中…";
       enableNotifications(session.name, function(err){
         notifBtn.disabled = false;
-        if (err) { notifBtn.textContent = "🔔 通知"; alert("通知を有効にできませんでした: " + err.message); }
-        else { notifBtn.textContent = "🔔 有効"; alert("通知を有効にしました。新しいチャットが届くとお知らせします。"); }
+        if (err) { notifBtn.textContent = "🔔 通知"; alert("通知を有効にできませんでした: " + err.message); return; }
+        notifBtn.outerHTML = notifBtnHtml();
+        wireNotifBtn();
+        alert("通知を有効にしました。新しいチャットが届くとお知らせします。");
       });
     };
   }
