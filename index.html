@@ -562,7 +562,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0907-1218"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0907-1223"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1460,12 +1460,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 通知ボタンの表示。checkNotifStatus()で判定した3状態を反映する。
   // "stale"(許可はあるがFirestore側の登録が古い・別端末に上書きされている)の場合は、
   // 「有効」と見せかけて実は届かない、という事故を防ぐため、はっきり分かる見た目にする。
-  // "on"の状態からタップした場合は、有効化ではなく無効化の操作になる(wireNotifBtn側で分岐)
+  // "on"の状態からタップした場合は、有効化ではなく無効化の操作になる(wireNotifBtn側で分岐)。
+  // ラベルは「通知」「有効」のようなバラバラの単語だとON/OFFの対比が分かりづらかったため、
+  // 「通知On」「通知Off」で統一している
   function notifBtnHtml(){
-    if (Notification.permission !== "granted") return '<button id="notif-btn" class="pin-fab">🔔 通知</button>';
+    if (Notification.permission !== "granted") return '<button id="notif-btn" class="pin-fab">🔕 通知Off</button>';
     if (notifStatus === "stale") return '<button id="notif-btn" class="pin-fab notif-stale">⚠️ 通知要再設定</button>';
-    if (notifStatus === "on") return '<button id="notif-btn" class="pin-fab">🔔 有効</button>';
-    return '<button id="notif-btn" class="pin-fab">🔔 通知</button>'; // 許可はあるが未登録(初回、または手動で無効化した状態)
+    if (notifStatus === "on") return '<button id="notif-btn" class="pin-fab">🔔 通知On</button>';
+    return '<button id="notif-btn" class="pin-fab">🔕 通知Off</button>'; // 許可はあるが未登録(初回、または手動で無効化した状態)
   }
   function wireNotifBtn(){
     var notifBtn = document.getElementById("notif-btn");
@@ -1481,7 +1483,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         notifBtn.textContent = "設定中…";
         disableNotifications(session.name, function(err){
           notifBtn.disabled = false;
-          if (err) { alert("無効化に失敗しました: " + err.message); notifBtn.textContent = "🔔 有効"; return; }
+          if (err) { alert("無効化に失敗しました: " + err.message); notifBtn.textContent = "🔔 通知On"; return; }
           notifBtn.outerHTML = notifBtnHtml();
           wireNotifBtn();
           alert("通知を無効にしました。");
@@ -1491,7 +1493,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       notifBtn.textContent = "設定中…";
       enableNotifications(session.name, function(err){
         notifBtn.disabled = false;
-        if (err) { notifBtn.textContent = "🔔 通知"; alert("通知を有効にできませんでした: " + err.message); return; }
+        if (err) { notifBtn.textContent = "🔕 通知Off"; alert("通知を有効にできませんでした: " + err.message); return; }
         notifBtn.outerHTML = notifBtnHtml();
         wireNotifBtn();
         alert("通知を有効にしました。新しいチャットが届くとお知らせします。");
