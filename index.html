@@ -38,7 +38,7 @@
   .sub{font-size:11.5px;color:var(--ink-dim);margin-top:2px;}
   .add-btn{background:var(--turf);color:#0a0d08;border:none;border-radius:999px;font-weight:700;font-size:13px;padding:9px 14px;flex:0 0 auto;}
   .add-btn:disabled{background:var(--card-hi);color:var(--ink-dim);opacity:.6;}
-  .student-select-wrap{padding:10px 0 4px;}
+  .student-select-wrap{padding:10px 0 4px;position:sticky;top:0;z-index:5;background:var(--bg);}
   .loc-tab-row{display:flex;gap:6px;padding:0 16px 8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
   .loc-tab-label{padding:10px 16px 4px;font-size:11px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.03em;}
   .loc-tab-row::-webkit-scrollbar{display:none;}
@@ -519,7 +519,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0907-1126"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0907-1133"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1303,18 +1303,23 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       // スクロール位置がリセットされて毎回先頭(左端)に戻ってしまう。選んだ会員のタグを
       // 常に表示範囲内(横方向)に来るようスクロールし直すことで、連続してタップしても
       // 位置が飛ばないようにする。
+      // また、会員選択エリア(教室タブ・検索・会員タグ)自体は画面上部に貼り付け(sticky)表示にして、
+      // チャット等の内容を下までスクロールしても、上に戻らずそのまま別の会員へ切り替えられるようにする。
       // 注意: renderBody(チャット・マイページ等)はデータ取得のため非同期にcontainer.innerHTMLを
-      // 後から書き換えることが多く、ここで即座にscrollIntoViewしても対象がまだDOMに無く効かない
-      // ことがあった。そのため、対象のタグが実際にDOMへ現れるまで監視してから実行する
+      // 後から書き換えることが多く、ここで即座に処理しても対象がまだDOMに無く効かないことがあった。
+      // そのため、対象が実際にDOMへ現れるまで監視してから実行する
       (function(){
-        function scrollSelectedIntoView(){
-          var el = container.querySelector(".student-tag.on");
-          if (el) { el.scrollIntoView({ inline: "center", block: "nearest" }); return true; }
-          return false;
+        function applyFixes(){
+          var topbarEl = container.querySelector(".topbar");
+          var selectWrapEl = container.querySelector(".student-select-wrap");
+          var tagEl = container.querySelector(".student-tag.on");
+          if (topbarEl && selectWrapEl) selectWrapEl.style.top = topbarEl.getBoundingClientRect().height + "px";
+          if (tagEl) tagEl.scrollIntoView({ inline: "center", block: "nearest" });
+          return !!(topbarEl && selectWrapEl && tagEl); // 3つ揃って初めて完了とみなす
         }
-        if (scrollSelectedIntoView()) return; // 既に描画済み(同期描画のケース)ならここで完了
+        if (applyFixes()) return; // 既に描画済み(同期描画のケース)ならここで完了
         var mo = new MutationObserver(function(){
-          if (scrollSelectedIntoView()) mo.disconnect();
+          if (applyFixes()) mo.disconnect();
         });
         mo.observe(container, { childList: true, subtree: true });
         setTimeout(function(){ mo.disconnect(); }, 5000); // 万一見つからなくても監視を残しっぱなしにしない
