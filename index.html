@@ -142,7 +142,10 @@
 
   .chat-body{display:flex;flex-direction:column;gap:10px;padding-bottom:160px;background:#0b0b0b;margin:0 -16px;padding-left:16px;padding-right:16px;}
   .day-div{align-self:center;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;color:#0a0d08;background:var(--turf);padding:6px 16px;border-radius:999px;margin:14px 0 10px;}
-  .bubble{max-width:78%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  /* max-widthは78%を指定しない(親の.msg-stackが既に画面幅の78%に制限しているため、
+     ここでさらに78%を掛けると実質61%まで狭まってしまい、短い文章でも不自然な位置で
+     折り返される原因になっていた。100%にして、親の幅いっぱいまでは自然に使えるようにする) */
+  .bubble{max-width:100%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,.25);}
   .bubble.coach{background:#3a3d3a;border:none;align-self:flex-start;border-bottom-left-radius:4px;color:#ffffff;}
   .bubble.me{background:var(--turf);border:none;align-self:flex-end;border-bottom-right-radius:4px;color:#0a0d08;}
   .bubble-meta{font-family:-apple-system,sans-serif;font-size:10px;color:#8a8a8a;margin:2px 4px;}
@@ -573,7 +576,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0908-1524"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0908-1542"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
