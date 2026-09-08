@@ -149,6 +149,7 @@
   .bubble.coach{background:#3a3d3a;border:none;align-self:flex-start;border-bottom-left-radius:4px;color:#ffffff;}
   .bubble.me{background:var(--turf);border:none;align-self:flex-end;border-bottom-right-radius:4px;color:#0a0d08;}
   .bubble-meta{font-family:-apple-system,sans-serif;font-size:10px;color:#8a8a8a;margin:2px 4px;}
+  .read-label{color:var(--turf);font-weight:700;margin-right:5px;}
   .bubble-meta.right{align-self:flex-end;}
   .bubble-meta.left{align-self:flex-start;}
   .msg-actions{display:flex;gap:10px;margin:1px 4px 4px;}
@@ -380,6 +381,12 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 1つのキーを共有すると、管理者が会員のチャットを開いただけでコーチ側も既読(未読バッジ消灯)になってしまい、
   // コーチが実際にはまだ見ていないメッセージを見逃す事故につながるため
   function chatLastReadKeyFor(role){ return role === "admin" ? "admin:chatLastRead" : "coach:chatLastRead"; }
+  // 会員側の「最後にチャットを開いた時刻」。会員は1人につき自分のチャットしか無いため、
+  // コーチ側のような生徒名ごとのマップではなく、単純な1つの時刻を保存するだけでよい
+  function studentChatLastReadKeyFor(name){ return "chat-lastread:" + name; }
+  function markChatReadByStudent(studentName){
+    setJSON(studentChatLastReadKeyFor(studentName), Date.now());
+  }
 
   // iOS Safariは、ホーム画面に追加してそのアイコンから開いた状態(スタンドアロンモード)でないと
   // プッシュ通知の仕組み自体が使えない(2026年時点のApple仕様。通常のSafariタブでは不可)。
@@ -580,7 +587,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0908-1549"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0908-1618"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2886,9 +2893,18 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           if (container._renderGen !== myRenderGen) return;
           getJSON(key, [], function(messages){
             if (container._renderGen !== myRenderGen) return;
-            if (isStaff()) markChatReadByCoach(studentName); // 開いた時点で既読にする
-            drawChat(container, messages, studentName, key, selectorHtml || "", studentRecord, coachProfile);
-            subscribeChatRealtime(container, key, studentName, selectorHtml || "", studentRecord, coachProfile, myRenderGen);
+            // 既読表示のため、コーチ・会員それぞれの「最後に読んだ時刻」を取得しておく
+            getJSON(chatLastReadKeyFor("coach"), {}, function(coachLastReadMap){
+              if (container._renderGen !== myRenderGen) return;
+              getJSON(studentChatLastReadKeyFor(studentName), 0, function(studentLastRead){
+                if (container._renderGen !== myRenderGen) return;
+                if (isStaff()) markChatReadByCoach(studentName); // 開いた時点で既読にする
+                else markChatReadByStudent(studentName);
+                var coachLastRead = coachLastReadMap[studentName] || 0;
+                drawChat(container, messages, studentName, key, selectorHtml || "", studentRecord, coachProfile, coachLastRead, studentLastRead);
+                subscribeChatRealtime(container, key, studentName, selectorHtml || "", studentRecord, coachProfile, myRenderGen, coachLastRead, studentLastRead);
+              });
+            });
           });
         });
       });
@@ -2898,7 +2914,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // チャット画面を開いている間、相手からの新着メッセージをリロード無しで反映するための購読。
   // タブを離れる・会員を切り替える際は必ず detachChatListener() で止める(このタブ以外の画面を
   // 誤って上書きしないよう、コールバック内でも tab と renderGen の両方を確認する)
-  function subscribeChatRealtime(container, key, studentName, selectorHtml, studentRecord, coachProfile, myRenderGen){
+  function subscribeChatRealtime(container, key, studentName, selectorHtml, studentRecord, coachProfile, myRenderGen, coachLastRead, studentLastRead){
     activeChatUnsub = onSnapshot(doc(db, "appState", sanitizeKey(key)), function(snap){
       if (tab !== "chat" || container._renderGen !== myRenderGen) return; // 別画面・別会員に移動済みなら何もしない
       var value = (snap.exists() && snap.data().value !== undefined)
@@ -2908,11 +2924,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       // 内容が変わっていなければ再描画しない(入力中のテキストが消えるのを無駄に避ける)
       if (JSON.stringify(dataCache[key]) === JSON.stringify(value)) return;
       dataCache[key] = value;
-      if (isStaff()) markChatReadByCoach(studentName);
+      var myNewLastRead = Date.now();
+      if (isStaff()) { markChatReadByCoach(studentName); coachLastRead = myNewLastRead; }
+      else { markChatReadByStudent(studentName); studentLastRead = myNewLastRead; }
       // 入力中の下書きテキストは、相手からの新着で画面が再描画されても消えないよう保持する
       var textInputEl = document.getElementById("chat-text");
       var draftText = textInputEl ? textInputEl.value : "";
-      drawChat(container, value, studentName, key, selectorHtml, studentRecord, coachProfile);
+      drawChat(container, value, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       if (draftText) {
         var newTextInputEl = document.getElementById("chat-text");
         var newSendBtn = document.getElementById("chat-send");
@@ -2924,7 +2942,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
   }
 
-  function drawChat(container, messages, studentName, key, selectorHtml, studentRecord, coachProfile){
+  function drawChat(container, messages, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead){
     // 送信者ごとのアイコン(生徒・コーチ・管理者(運営)とも、登録写真があればそれ、無ければ頭文字)
     function avatarHtml(m){
       if (m.from === "student" && studentRecord && studentRecord.photoUrl) {
@@ -2944,10 +2962,21 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     // (平山/運営)を表示する。運営が一度も関わっていないチャット(大半のケース)では、
     // 今まで通りラベル無しのすっきりした見た目のままにする
     var threadHasAdminMessage = messages.some(function(msg){ return msg.authorRole === "admin"; });
+    // ===== 既読表示(LINEのような仕組み) =====
+    // 「自分側の一番新しい発言」だけに既読/未読を出す(全メッセージに付けると煩雑になるため)。
+    // 会員から見る「コーチ既読」は、あえてコーチ自身が読んだ時刻だけを基準にする(運営が見ても
+    // 既読にはならない)。逆にコーチ・管理者から見る「会員既読」は、会員側の閲覧時刻のみで判定する
+    // (会員は1人なので、コーチが見ても管理者が見ても同じ基準になる)
+    var myLastOwnMsgIndex = -1;
+    for (var mi = messages.length - 1; mi >= 0; mi--) {
+      var isMyOwnSide = viewerIsStaff ? (messages[mi].from === "coach") : (messages[mi].from === "student");
+      if (isMyOwnSide) { myLastOwnMsgIndex = mi; break; }
+    }
+    var otherPartyLastRead = viewerIsStaff ? (studentLastRead || 0) : (coachLastRead || 0);
     var lastDay = null;
     var bodyHtml = messages.length === 0
       ? '<div class="empty">まだメッセージがありません。</div>'
-      : messages.map(function(m){
+      : messages.map(function(m, mi){
           var msgIsStaff = m.from === "coach"; // fromは表示位置専用に正規化済み("coach"=スタッフ側)
           // 吹き出しの左右は「スタッフ側かどうか」で決める。コーチが見ても管理者が見ても、
           // 相手が会員なら会員が左・スタッフ(自分含む)は右、という同じ並びになる
@@ -2962,6 +2991,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
             : "";
           var dayHtml = "";
           if (m.day !== lastDay) { dayHtml = '<div class="day-div">' + esc(m.day) + '</div>'; lastDay = m.day; }
+          // 自分側の一番新しい発言(myLastOwnMsgIndex)にだけ、相手がそこまで読んでいれば「既読」を出す
+          var readLabelHtml = (mi === myLastOwnMsgIndex && otherPartyLastRead >= parseTsFromId(m.id, "m-"))
+            ? '<span class="read-label">既読</span>' : "";
           var actionsHtml = mine
             ? '<div class="msg-actions ' + (side === "coach" ? "left" : "right") + '">' +
                 (m.type === "text" ? '<button class="msg-edit" data-id="' + esc(m.id) + '">編集</button>' : '') +
@@ -2969,16 +3001,19 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
               '</div>'
             : "";
           var rowInner;
+          var metaHtml = '<div class="bubble-meta ' + (side === "coach" ? "left" : "right") + '">' +
+            (side === "me" ? readLabelHtml : "") + esc(m.time) +
+          '</div>';
           if (m.type === "text") {
             rowInner = authorLabelHtml + '<div class="bubble ' + side + '" data-id="' + esc(m.id) + '">' + esc(m.text) + '</div>' +
-              '<div class="bubble-meta ' + (side === "coach" ? "left" : "right") + '">' + esc(m.time) + '</div>' + actionsHtml;
+              metaHtml + actionsHtml;
           } else {
             rowInner = authorLabelHtml + '<div class="video-bubble">' +
                 '<video src="' + esc(m.videoUrl) + '" controls playsinline preload="metadata"></video>' +
                 '<span class="pill">質問動画</span>' +
               '</div>' +
               (m.caption ? '<div class="bubble ' + side + '" data-id="' + esc(m.id) + '">' + esc(m.caption) + '</div>' : "") +
-              '<div class="bubble-meta ' + (side === "coach" ? "left" : "right") + '">' + esc(m.time) + '</div>' + actionsHtml;
+              metaHtml + actionsHtml;
           }
           return dayHtml +
             '<div class="msg-row ' + side + '">' + avatarHtml(m) + '<div class="msg-stack">' + rowInner + '</div></div>';
@@ -3042,7 +3077,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         if (!newText) return;
         var next = messages.map(function(x){ return x.id === id ? Object.assign({}, x, { text: newText }) : x; });
         setJSON(key, next);
-        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       };
     }
     var delBtns = container.querySelectorAll(".msg-delete");
@@ -3055,7 +3090,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         if (target && target.videoUrl) deleteUploadedFile(target.videoUrl);
         var next = messages.filter(function(x){ return x.id !== id; });
         setJSON(key, next);
-        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       };
     }
 
@@ -3106,7 +3141,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
             var next = messages.concat([entry]);
             setJSON(key, next);
             markChatActivity(studentName, session.role);
-            drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+            drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
           }, function(err){
             sendBtn.disabled = false;
             textInput.disabled = false;
@@ -3118,7 +3153,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         var next = messages.concat([entry]);
         setJSON(key, next);
         markChatActivity(studentName, session.role);
-        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       }
     }
   }
