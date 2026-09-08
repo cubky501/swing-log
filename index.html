@@ -448,8 +448,12 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     if (Notification.permission !== "granted") { notifStatus = "off"; if (cb) cb(); return; }
     isSupported().then(function(supported){
       if (!supported) { notifStatus = "off"; if (cb) cb(); return; }
-      navigator.serviceWorker.getRegistration("/firebase-messaging-sw.js").then(function(reg){
-        if (!reg) { notifStatus = "stale"; if (cb) cb(); return; } // 許可はあるがService Worker未登録
+      // getRegistration()だと、Service Workerがインストール中/待機中でまだ有効化しきっていない
+      // 瞬間にも(不完全な状態のまま)値を返してしまうことがあり、特にアプリを更新した直後に
+      // 「本当は問題ないのに、まだ準備中なだけで一時的にズレていると誤判定される」原因になっていた。
+      // navigator.serviceWorker.readyは「実際に有効化され、ページの制御を始めた状態」まで
+      // 待ってくれるため、こちらを使うことで誤判定を防ぐ
+      navigator.serviceWorker.ready.then(function(reg){
         var messaging = getMessaging(fbApp);
         getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
           getJSON(FCM_TOKENS_KEY, {}, function(map){
@@ -576,7 +580,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0908-1542"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0908-1549"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
