@@ -402,6 +402,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
 
   // 通知を有効化する。ボタン押下時に呼ぶ。パーミッション許可→SW登録→トークン取得→Firestoreへ保存、の順で進める
+  var MAX_TOKENS_PER_PERSON = 5; // 1人あたり同時に登録できる端末数の上限(超えた分は古い端末から間引く)
   function enableNotifications(myName, onDone){
     if (!notificationsAvailable()) { if (onDone) onDone(new Error("このブラウザ/環境では通知を利用できません")); return; }
     isSupported().then(function(supported){
@@ -415,12 +416,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       }).then(function(token){
         if (!token) throw new Error("トークンを取得できませんでした");
         getFreshJSON(FCM_TOKENS_KEY, {}, function(map){
-          // 以前は「追加」方式だったため、今日のように何度も有効化し直すと、Safariタブで試した時の
-          // 古いトークンとホーム画面から開いた時の新しいトークンが両方残ってしまい、同じ端末なのに
-          // 2件分の通知が送られる不具合があった。「有効にする」を押した端末の最新トークンだけに
-          // 置き換える方式にすることで、この蓄積を防ぐ(1人が複数端末を使うケースは非対応になるが、
-          // 今の運用規模ではこちらを優先する)
-          map[myName] = [token];
+          // 1人が複数端末(iPhone・iPadなど)で通知を受け取れるよう、配列に追加していく方式。
+          // 同じ端末を何度も有効化し直しても(例:ホーム画面アイコンの作り直し等でトークンが
+          // 変わっても)際限なく増えないよう、直近MAX_TOKENS_PER_PERSON台までに間引く
+          var existing = (map[myName] || []).filter(function(t){ return t !== token; });
+          existing.push(token);
+          if (existing.length > MAX_TOKENS_PER_PERSON) existing = existing.slice(existing.length - MAX_TOKENS_PER_PERSON);
+          map[myName] = existing;
           setJSON(FCM_TOKENS_KEY, map);
           notifStatus = "on";
           if (onDone) onDone(null);
@@ -433,13 +435,27 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
   // 通知を無効化する。ブラウザ・OS側の「許可」設定自体は本人にしか取り消せないため、
   // ここでは「Firestore側の登録を削除する」ことで、実質的に通知が届かない状態にする
-  // (通知ボタンを押し直せば、この端末をまた登録し直して再度有効にできる)
+  // (通知ボタンを押し直せば、この端末をまた登録し直して再度有効にできる)。
+  // 複数端末に対応したため、削除するのは「この端末のトークンだけ」にする
+  // (他の端末の登録を巻き込んで消さないように)
   function disableNotifications(myName, onDone){
-    getFreshJSON(FCM_TOKENS_KEY, {}, function(map){
-      delete map[myName];
-      setJSON(FCM_TOKENS_KEY, map);
-      notifStatus = "off";
-      if (onDone) onDone(null);
+    function removeByToken(token){
+      getFreshJSON(FCM_TOKENS_KEY, {}, function(map){
+        var existing = map[myName] || [];
+        map[myName] = token ? existing.filter(function(t){ return t !== token; }) : [];
+        setJSON(FCM_TOKENS_KEY, map);
+        notifStatus = "off";
+        if (onDone) onDone(null);
+      });
+    }
+    isSupported().then(function(supported){
+      if (!supported) { removeByToken(null); return; }
+      navigator.serviceWorker.ready.then(function(reg){
+        var messaging = getMessaging(fbApp);
+        getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg })
+          .then(function(token){ removeByToken(token); })
+          .catch(function(){ removeByToken(null); }); // トークンが取れなくても、無効化自体は完了させる
+      }).catch(function(){ removeByToken(null); });
     });
   }
 
@@ -464,12 +480,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         var messaging = getMessaging(fbApp);
         getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
           getJSON(FCM_TOKENS_KEY, {}, function(map){
-            var registered = (map[myName] || [])[0];
-            // 登録が全く無い場合(一度も有効にしていない、または手動で無効化した)は「壊れている」わけ
-            // ではないので、区別して"off"として扱う。登録はあるのに現在のトークンと食い違う場合だけ
-            // 「本来は有効なはずが実際には届かない状態」として"stale"にする
-            if (!registered) notifStatus = "off";
-            else notifStatus = (token && registered === token) ? "on" : "stale";
+            var registeredList = map[myName] || [];
+            // 複数端末に対応したため、「この端末のトークンが配列のどこかに含まれているか」で判定する
+            // (以前は配列の1つ目だけを見ていたため、2台目以降の端末が常に"stale"扱いになる不具合があった)
+            if (registeredList.length === 0) notifStatus = "off";
+            else notifStatus = (token && registeredList.indexOf(token) !== -1) ? "on" : "stale";
             if (cb) cb();
           });
         }).catch(function(){ notifStatus = "stale"; if (cb) cb(); });
@@ -587,7 +602,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0908-1618"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0908-1715"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
