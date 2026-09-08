@@ -28,7 +28,10 @@
   @media (min-width: 1025px){
     /* デスクトップ幅ではプレビュー用にスマホ枠を再現する */
     #root{display:flex;justify-content:center;padding:24px 12px;}
-    .phone{width:390px;max-width:100%;min-height:800px;border-radius:32px;border:8px solid #050704;box-shadow:0 20px 50px rgba(0,0,0,.5);overflow:hidden;}
+    // 以前はoverflow:hiddenを指定していたが、position:stickyの基準がこの要素になってしまい、
+    // 会員選択エリアの上部固定表示(sticky)がiPadで大きくズレる不具合の原因になっていた。
+    // 角丸のフチから中身が少しはみ出す可能性はあるが、実害は無いためoverflow指定は外している
+    .phone{width:390px;max-width:100%;min-height:800px;border-radius:32px;border:8px solid #050704;box-shadow:0 20px 50px rgba(0,0,0,.5);}
   }
   .statusbar{height:38px;flex:0 0 38px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 6px;font-family:monospace;font-size:12px;color:var(--ink-dim);}
   .screen-wrap{display:block;}
@@ -562,7 +565,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0907-1232"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0908-1408"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
