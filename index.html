@@ -36,12 +36,20 @@
   .statusbar{height:38px;flex:0 0 38px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 6px;font-family:monospace;font-size:12px;color:var(--ink-dim);}
   .screen-wrap{display:block;}
   .topbar{position:sticky;top:0;z-index:6;background:var(--bg);padding:calc(52px + env(safe-area-inset-top)) 18px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-end;}
+  /* 会員選択エリア(教室タブ・検索・会員タグ)がある画面では、ヘッダーとまとめてこの1つの
+     要素をsticky(上部固定)にする。以前はJavaScriptでヘッダーの高さを測って
+     student-select-wrap側の固定位置に反映する方式だったが、iPadで大きな余白ができる
+     不具合があったため、この「ヘッダーごとまとめて固定」方式に変更した。
+     この時、内側のtopbar自身のsticky指定は不要(というより二重になり不具合の元になるため)、
+     ラッパーの中にある時だけ打ち消す */
+  .sticky-header-group{position:sticky;top:0;z-index:6;background:var(--bg);}
+  .sticky-header-group .topbar{position:static;top:auto;z-index:auto;}
   .eyebrow{font-family:monospace;font-size:11px;letter-spacing:.14em;color:var(--turf);text-transform:uppercase;}
   .h1{font-weight:700;font-size:24px;}
   .sub{font-size:11.5px;color:var(--ink-dim);margin-top:2px;}
   .add-btn{background:var(--turf);color:#0a0d08;border:none;border-radius:999px;font-weight:700;font-size:13px;padding:9px 14px;flex:0 0 auto;}
   .add-btn:disabled{background:var(--card-hi);color:var(--ink-dim);opacity:.6;}
-  .student-select-wrap{padding:10px 0 4px;position:sticky;top:0;z-index:5;background:var(--bg);}
+  .student-select-wrap{padding:10px 0 4px;}
   .loc-tab-row{display:flex;gap:6px;padding:0 16px 8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
   .loc-tab-label{padding:10px 16px 4px;font-size:11px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.03em;}
   .loc-tab-row::-webkit-scrollbar{display:none;}
@@ -565,7 +573,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0908-1408"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0908-1524"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1356,19 +1364,17 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       // スクロール位置がリセットされて毎回先頭(左端)に戻ってしまう。選んだ会員のタグを
       // 常に表示範囲内(横方向)に来るようスクロールし直すことで、連続してタップしても
       // 位置が飛ばないようにする。
-      // また、会員選択エリア(教室タブ・検索・会員タグ)自体は画面上部に貼り付け(sticky)表示にして、
-      // チャット等の内容を下までスクロールしても、上に戻らずそのまま別の会員へ切り替えられるようにする。
+      // (会員選択エリアの上部固定表示自体は、CSSの.sticky-header-groupで行っている。
+      // 以前はここでJavaScriptがヘッダーの高さを測って位置を合わせていたが、iPadで
+      // 大きな余白ができる不具合の原因になっていたため、CSSだけで完結する方式に変更した)
       // 注意: renderBody(チャット・マイページ等)はデータ取得のため非同期にcontainer.innerHTMLを
       // 後から書き換えることが多く、ここで即座に処理しても対象がまだDOMに無く効かないことがあった。
       // そのため、対象が実際にDOMへ現れるまで監視してから実行する
       (function(){
         function applyFixes(){
-          var topbarEl = container.querySelector(".topbar");
-          var selectWrapEl = container.querySelector(".student-select-wrap");
           var tagEl = container.querySelector(".student-tag.on");
-          if (topbarEl && selectWrapEl) selectWrapEl.style.top = topbarEl.getBoundingClientRect().height + "px";
           if (tagEl) tagEl.scrollIntoView({ inline: "center", block: "nearest" });
-          return !!(topbarEl && selectWrapEl && tagEl); // 3つ揃って初めて完了とみなす
+          return !!tagEl;
         }
         if (applyFixes()) return; // 既に描画済み(同期描画のケース)ならここで完了
         var mo = new MutationObserver(function(){
@@ -2566,6 +2572,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     if (studentRecord && studentRecord.golfHistory) scoreParts2.push("ゴルフ歴 " + studentRecord.golfHistory);
     if (studentRecord && studentRecord.avgRounds) scoreParts2.push("年間ラウンド " + studentRecord.avgRounds);
     container.innerHTML =
+      '<div class="sticky-header-group">' +
       '<div class="topbar"><div style="display:flex;align-items:center;gap:10px;">' +
         (studentRecord && studentRecord.photoUrl ? '<div class="avatar" style="width:44px;height:44px;flex:0 0 44px;"><img class="avatar-photo" src="' + esc(studentRecord.photoUrl) + '"></div>' : '') +
         '<div>' +
@@ -2575,6 +2582,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '</div>' +
       '</div></div>' +
       selectorHtml +
+      '</div>' +
       '<div class="content">' +
         '<div class="kpi-row">' +
           '<div class="kpi"><div class="num">' + lessons.length + '</div><div class="lbl">レッスン本数</div></div>' +
@@ -2644,11 +2652,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         }).join("");
 
     container.innerHTML =
+      '<div class="sticky-header-group">' +
       '<div class="topbar">' +
         '<div><div class="eyebrow">Lesson Note</div><div class="h1">スイング記録</div><div class="sub">' + (isStaff() ? "会員：" + esc(studentName) : "担当コーチ：" + esc(coachProfile.name)) + ' ／ 全' + lessons.length + '本</div></div>' +
         (canAdd ? '<button id="add-lesson-btn" class="add-btn">＋ 追加</button>' : '') +
       '</div>' +
       selectorHtml +
+      '</div>' +
       '<div class="content">' + cardsHtml + '</div>' +
       (canAdd ? addLessonSheetHtml() : '');
 
@@ -2968,6 +2978,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         }).join("");
 
     container.innerHTML =
+      '<div class="sticky-header-group">' +
       '<div class="topbar"><div style="display:flex;align-items:center;gap:10px;">' +
         (isStaff()
           ? (studentRecord && studentRecord.photoUrl
@@ -2979,6 +2990,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '<div style="font-size:14px;font-weight:700;">' + (isStaff() ? esc(studentName) + " 様" : esc(coachProfile.name) + " コーチ") + '</div>' +
       '</div></div>' +
       selectorHtml +
+      '</div>' +
       '<div id="chat-scroll" class="content chat-body">' + bodyHtml + '</div>' +
       '<div id="chat-file-chip"></div>' +
       '<div class="inputbar">' +
