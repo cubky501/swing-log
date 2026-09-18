@@ -179,9 +179,14 @@
   .roster-name{font-size:15px;font-weight:700;}
   .roster-loc{font-family:monospace;font-size:10px;font-weight:400;color:var(--sand);background:var(--card-hi);padding:1px 7px;border-radius:999px;margin-left:4px;}
   .roster-sub{font-family:monospace;font-size:12px;color:var(--ink-dim);margin-top:3px;}
-  .checkin-heatmap{display:flex;gap:3px;margin-top:6px;}
+  .checkin-heatmap{display:flex;gap:3px;margin-top:6px;align-items:center;}
   .checkin-cell{width:11px;height:11px;border-radius:3px;background:var(--card-hi);border:1px solid var(--line);}
   .checkin-cell.on{background:var(--turf);border-color:var(--turf);}
+  /* 直近14日の「さらに前」(15〜42日前)を週単位でざっくり示すブロック。1マス=1週間なので、
+     日ごとのマスより意図的に横長にして「粗い解像度」だと視覚的にも伝わるようにしている */
+  .checkin-cell-week{width:7px;height:11px;border-radius:2px;background:var(--card-hi);border:1px solid var(--line);opacity:.7;}
+  .checkin-cell-week.on{background:var(--turf-dim);border-color:var(--turf-dim);opacity:1;}
+  .checkin-heatmap-gap{width:5px;}
   .roster-actions{display:flex;gap:14px;margin-top:8px;}
   .status-dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;}
   .status-dot.warn{background:var(--danger);}
@@ -602,7 +607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0908-1715"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0918-1352"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -930,6 +935,27 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       days.push({ key: key, active: !!set[key] });
     }
     return days;
+  }
+  // 直近14日(recentCheckinDays)の「さらに前」、15〜42日前の4週間分を、日ごとではなく
+  // 週ごとにまとめて「だいたいこの週あたりに来ていたか」だけ分かるようにする。
+  // 1ヶ月以上ログインが無い会員が増えても、30日分をそのまま並べると見づらくなるだけなので、
+  // 粗い解像度で「ざっくり動いているか」を確認できれば十分、という考え方
+  function olderCheckinWeeks(checkinDates){
+    var set = {};
+    (checkinDates || []).forEach(function(d){ if (typeof d === "string") set[d] = true; });
+    var jstNow = Date.now() + 9 * 60 * 60 * 1000;
+    var weeks = [];
+    for (var w = 3; w >= 0; w--) {
+      var active = false;
+      for (var i = 0; i < 7; i++) {
+        var daysBack = 14 + w * 7 + i;
+        var d = new Date(jstNow - daysBack * 86400000);
+        var key = d.toISOString().slice(0, 10);
+        if (set[key]) { active = true; break; }
+      }
+      weeks.push({ active: active });
+    }
+    return weeks;
   }
   function esc(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
@@ -3322,10 +3348,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
   }
 
+  var INACTIVE_THRESHOLD_DAYS = 30; // 「未ログイン」として警告表示する日数のしきい値(以前は7日だったが、1ヶ月に変更)
   function drawRoster(container, students, usageMap, coachProfile){
     usageMap = usageMap || {};
     var total = students.length;
-    var inactive = students.filter(function(s){ return daysSinceLastCheckin(s.lastCheckinDate) >= 7; }).length;
+    var inactive = students.filter(function(s){ return daysSinceLastCheckin(s.lastCheckinDate) >= INACTIVE_THRESHOLD_DAYS; }).length;
 
     var filteredStudents = students.filter(function(s){
       if (!coachRosterSearch) return true;
@@ -3340,7 +3367,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       ? '<div class="empty">' + (students.length === 0 ? "まだ会員がログインしていません。\n会員がログインすると自動でここに表示されます。" : "該当する会員がいません。") + '</div>'
       : filteredStudents.map(function(s){
           var since = daysSinceLastCheckin(s.lastCheckinDate);
-          var warn = since >= 7;
+          var warn = since >= INACTIVE_THRESHOLD_DAYS;
           var usedMB = (usageMap[s.name] || 0) / (1024 * 1024);
           var usedPct = Math.min(100, Math.round((usedMB / STUDENT_CAP_MB) * 100));
           var overCap = usedMB >= STUDENT_CAP_MB;
@@ -3349,6 +3376,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           if (s.bestScore != null && s.bestScore !== "") scoreParts.push("ベスト " + s.bestScore);
           if (s.avgScore != null && s.avgScore !== "") scoreParts.push("平均 " + s.avgScore);
           var heatmapHtml = '<div class="checkin-heatmap">' +
+            olderCheckinWeeks(s.checkins).map(function(w){ return '<span class="checkin-cell-week' + (w.active ? " on" : "") + '"></span>'; }).join("") +
+            '<span class="checkin-heatmap-gap"></span>' +
             recentCheckinDays(s.checkins).map(function(d){ return '<span class="checkin-cell' + (d.active ? " on" : "") + '"></span>'; }).join("") +
             '</div>';
           return '<div class="roster-row">' +
@@ -3385,7 +3414,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '</div>' +
         '<div class="kpi-row">' +
           '<div class="kpi"><div class="num">' + total + '</div><div class="lbl">担当会員数</div></div>' +
-          '<div class="kpi"><div class="num">' + inactive + '</div><div class="lbl">7日以上未ログイン</div></div>' +
+          '<div class="kpi"><div class="num">' + inactive + '</div><div class="lbl">1ヶ月以上未ログイン</div></div>' +
         '</div>' +
         '<div class="yardage" style="margin-top:22px;"><span class="tick"></span><span class="num">会員一覧</span><span class="tick"></span></div>' +
         '<div class="student-search-row">' +
