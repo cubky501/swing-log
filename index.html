@@ -607,7 +607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0920-1309"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0920-1315"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2532,8 +2532,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
   function drawMyPage(container, studentName, lessons, messages, selectorHtml, studentRecord, coachProfile, lessonPlan){
     // 今月(暦月、日本時間基準)のレッスン回数。会員ごとに月の上限回数が決まっているため、
-    // 「今月あと何回使ったか」が一目で分かるようにする
-    var thisMonthLessonCount = 0;
+    // 「今月あと何回使ったか」が一目で分かるようにする。
+    // 1回のレッスンでも動画を複数登録することがある(クラブ別など)ため、レッスンノートの
+    // 「件数」ではなく「日付の種類数」でカウントする(1日に2回レッスンに来る会員はいない前提)
+    var thisMonthDatesSet = {};
     if (lessons.length > 0) {
       var nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
       var curYear = nowJst.getUTCFullYear();
@@ -2542,9 +2544,12 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         var ts = parseTsFromId(l.id, "l-");
         if (ts <= 0) return;
         var d = new Date(ts + 9 * 60 * 60 * 1000);
-        if (d.getUTCFullYear() === curYear && d.getUTCMonth() === curMonth) thisMonthLessonCount++;
+        if (d.getUTCFullYear() === curYear && d.getUTCMonth() === curMonth) {
+          thisMonthDatesSet[d.getUTCFullYear() + "-" + d.getUTCMonth() + "-" + d.getUTCDate()] = true;
+        }
       });
     }
+    var thisMonthLessonCount = Object.keys(thisMonthDatesSet).length;
 
     // ---- 指摘カテゴリの集計(頻出ポイント・傾向) ----
     // 「良かった点」は課題ではなく前向きな評価なので、この集計(頻出の指摘ポイント)には含めない
