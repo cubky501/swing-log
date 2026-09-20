@@ -607,7 +607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0920-1304"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0920-1309"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2531,18 +2531,19 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
 
   function drawMyPage(container, studentName, lessons, messages, selectorHtml, studentRecord, coachProfile, lessonPlan){
-    // 月あたりのレッスン回数(直近ではなく、通い始めてからの平均ペース)。
-    // レッスンのidに埋め込まれた作成時刻から、一番古いレッスンの日付を求め、
-    // そこから現在までの経過月数でレッスン本数を割って算出する。
-    // 通い始めたばかりで1ヶ月に満たない場合は、実態より大きな数字にならないよう最低1ヶ月とみなす
-    var avgLessonsPerMonth = null;
+    // 今月(暦月、日本時間基準)のレッスン回数。会員ごとに月の上限回数が決まっているため、
+    // 「今月あと何回使ったか」が一目で分かるようにする
+    var thisMonthLessonCount = 0;
     if (lessons.length > 0) {
-      var lessonTimestamps = lessons.map(function(l){ return parseTsFromId(l.id, "l-"); }).filter(function(t){ return t > 0; });
-      if (lessonTimestamps.length > 0) {
-        var earliestTs = Math.min.apply(null, lessonTimestamps);
-        var monthsElapsed = Math.max(1, (Date.now() - earliestTs) / (30.44 * 86400000)); // 30.44日 ≒ 1ヶ月の平均日数
-        avgLessonsPerMonth = Math.round((lessons.length / monthsElapsed) * 10) / 10; // 小数点1桁まで
-      }
+      var nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+      var curYear = nowJst.getUTCFullYear();
+      var curMonth = nowJst.getUTCMonth();
+      lessons.forEach(function(l){
+        var ts = parseTsFromId(l.id, "l-");
+        if (ts <= 0) return;
+        var d = new Date(ts + 9 * 60 * 60 * 1000);
+        if (d.getUTCFullYear() === curYear && d.getUTCMonth() === curMonth) thisMonthLessonCount++;
+      });
     }
 
     // ---- 指摘カテゴリの集計(頻出ポイント・傾向) ----
@@ -2653,7 +2654,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '<div class="content">' +
         '<div class="kpi-row">' +
           '<div class="kpi"><div class="num">' + lessons.length + '</div><div class="lbl">レッスン本数</div></div>' +
-          '<div class="kpi"><div class="num">' + (avgLessonsPerMonth != null ? avgLessonsPerMonth : "-") + '</div><div class="lbl">月あたりのレッスン回数</div></div>' +
+          '<div class="kpi"><div class="num">' + thisMonthLessonCount + '</div><div class="lbl">今月のレッスン回数</div></div>' +
         '</div>' +
         aiSummarySectionHtml(lessons.length) +
         lessonPlanSectionHtml(lessons.length, lessonPlan, coachProfile) +
