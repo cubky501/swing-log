@@ -174,7 +174,7 @@
   .coach-profile-card{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;}
   .kpi{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;}
   .kpi .num{font-size:26px;font-weight:700;color:var(--turf);}
-  .kpi .lbl{font-size:10.5px;color:var(--ink-dim);margin-top:2px;}
+  .kpi .lbl{font-size:10.5px;color:var(--ink-dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .roster-row{display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);}
   .roster-name{font-size:15px;font-weight:700;}
   .roster-loc{font-family:monospace;font-size:10px;font-weight:400;color:var(--sand);background:var(--card-hi);padding:1px 7px;border-radius:999px;margin-left:4px;}
@@ -607,7 +607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0920-1355"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0920-1400"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2664,8 +2664,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '<div class="content">' +
         '<div class="kpi-row">' +
           '<div class="kpi"><div class="num">' + lessons.length + '</div><div class="lbl">レッスン本数</div></div>' +
-          '<div class="kpi"><div class="num">' + lastMonthLessonCount + '</div><div class="lbl">先月のレッスン回数</div></div>' +
-          '<div class="kpi"><div class="num">' + thisMonthLessonCount + '</div><div class="lbl">今月のレッスン回数</div></div>' +
+          '<div class="kpi"><div class="num">' + lastMonthLessonCount + '</div><div class="lbl">先月レッスン回数</div></div>' +
+          '<div class="kpi"><div class="num">' + thisMonthLessonCount + '</div><div class="lbl">今月レッスン回数</div></div>' +
         '</div>' +
         aiSummarySectionHtml(lessons.length) +
         lessonPlanSectionHtml(lessons.length, lessonPlan, coachProfile) +
