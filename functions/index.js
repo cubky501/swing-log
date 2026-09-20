@@ -182,6 +182,8 @@ const LESSON_PLAN_DAILY_LIMIT = 20; // 同一会員につき1日あたりの生�
 const SUMMARY_SYSTEM_PROMPT =
   "あなたはゴルフコーチのアシスタントです。生徒のレッスン記録(日付・クラブ種別・コーチのコメント)の一覧を渡すので、" +
   "傾向を分析し、次のJSON形式で**日本語で**出力してください。JSON以外の文字列(前置き・説明文・コードブロック記法)は一切出力しないこと。\n\n" +
+  "一覧は日付の古い順に並んでおり、各行の日付には年も含まれています。年をまたいで記録がある場合があるため、" +
+  "序盤・中盤・直近の期間分けは月だけでなく必ず年も考慮し、実際の時系列(古い→新しい)を正しく踏まえること。\n\n" +
   "{\n" +
   '  "phases": [\n' +
   '    { "period": "序盤(◯月〜◯月)", "summary": "一言(10〜20文字程度)", "detail": "2〜3文の説明" },\n' +
@@ -197,9 +199,31 @@ const SUMMARY_SYSTEM_PROMPT =
   "}\n\n" +
   "phasesは3つ程度、repeatedPointsは2〜3個程度にすること。日付や回数など、渡されたデータから読み取れる具体的な事実に基づいて書き、憶測は避けること。";
 
+// レッスン記録のidは "l-<作成時のミリ秒タイムスタンプ>" の形式になっている。以前はこの作成時刻を
+// 「レッスンがあった日」とみなしていたが、翌日以降にまとめて記録することもあるため、
+// 会員が実際に選んだ日付(dateKey、"YYYY-MM-DD"形式)があればそちらを優先する。
+// dateKeyを持たない古い記録は、今まで通りidの作成時刻から日付を復元する(後方互換)
+function getSortableTs(l) {
+  if (l.dateKey) {
+    var parts = String(l.dateKey).split("-");
+    // その日の正午のタイムスタンプにしておく(日付の比較・ソートに使うだけなので、時刻の精度は問わない)
+    return Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 3, 0, 0); // 3:00 UTC = 正午JST
+  }
+  var ts = parseInt(String(l.id || "").replace("l-", ""), 10);
+  return isNaN(ts) ? 0 : ts;
+}
+function formatDateWithYearFromTs(ts, fallback) {
+  if (!ts) return fallback || "";
+  // 日本時間基準の日付にする(UTCのまま日付を取り出すと、日本時間の深夜帯で1日ズレることがあるため)
+  var jst = new Date(ts + 9 * 60 * 60 * 1000);
+  return jst.getUTCFullYear() + "年" + (jst.getUTCMonth() + 1) + "月" + jst.getUTCDate() + "日";
+}
+
 async function callAnthropic(apiKey, lessons) {
-  var lessonLines = lessons
-    .map(function (l) { return (l.date || "") + "|" + (l.tag || "") + "|" + (l.comment || ""); })
+  // 保存されている配列は新しい順(先頭が最新)のため、AIが時系列を追いやすいよう古い順に並べ替える
+  var sorted = lessons.slice().sort(function (a, b) { return getSortableTs(a) - getSortableTs(b); });
+  var lessonLines = sorted
+    .map(function (l) { return formatDateWithYearFromTs(getSortableTs(l), l.date) + "|" + (l.tag || "") + "|" + (l.comment || ""); })
     .join("\n");
 
   var res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -267,12 +291,15 @@ const LESSON_PLAN_SYSTEM_PROMPT =
   "あなたはゴルフコーチのアシスタントです。生徒のレッスン記録(日付・クラブ種別・コーチのコメント)の一覧を渡すので、" +
   "今後1〜2ヶ月のレッスン計画を、コーチが生徒本人に向けて話しかける口調で、**日本語で**箇条書き5行程度にまとめてください。" +
   "各行は「・」で始め、1行は40文字程度までの簡潔な文にすること。" +
+  "一覧は日付の古い順に並んでおり、各行の日付には年も含まれています。年をまたいで記録がある場合があるため、" +
+  "「直近の変化」を判断する際は月だけでなく年も考慮し、実際の時系列を正しく踏まえること。" +
   "レッスン記録から読み取れる繰り返しの指摘や直近の変化など、具体的な事実に基づいて書き、憶測は避けること。" +
   "箇条書き以外の前置き・説明文・見出し・コードブロック記法は一切出力しないこと。";
 
 async function callAnthropicForLessonPlan(apiKey, lessons) {
-  var lessonLines = lessons
-    .map(function (l) { return (l.date || "") + "|" + (l.tag || "") + "|" + (l.comment || ""); })
+  var sorted = lessons.slice().sort(function (a, b) { return getSortableTs(a) - getSortableTs(b); });
+  var lessonLines = sorted
+    .map(function (l) { return formatDateWithYearFromTs(getSortableTs(l), l.date) + "|" + (l.tag || "") + "|" + (l.comment || ""); })
     .join("\n");
 
   var res = await fetch("https://api.anthropic.com/v1/messages", {
