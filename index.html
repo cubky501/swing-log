@@ -607,7 +607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0920-1315"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0920-1339"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2704,7 +2704,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
                 '<button data-rate="0.5">0.5x</button>' +
                 '<button data-rate="0.25">0.25x</button>' +
               '</div>'
-            : (l.thumb ? '<img src="' + esc(l.thumb) + '" alt="" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div class=media-fallback>画像を読み込めませんでした</div>\')">' : '<div class="media-fallback">画像なし</div>');
+            : (l.thumb ? '<img src="' + esc(l.thumb) + '" alt="" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div class=media-fallback>画像を読み込めませんでした</div>\')">' : '<div class="media-fallback">動画なし</div>');
           // 日付が変わるところにだけ見出しを出す(同じ日付のレッスンが続く間は出さない)
           var dateHeader = l.date !== lastFeedDate
             ? '<div class="tl-date-header"' + (i === 0 ? ' style="margin-top:4px;"' : '') + '><span class="chip">' + esc(l.date) + '</span><span class="tick"></span></div>'
@@ -2783,8 +2783,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     return '<div id="lesson-sheet" class="modal-back hidden"><div class="sheet">' +
       '<div class="sheet-title" id="lesson-sheet-title">レッスン動画を追加</div>' +
       '<div id="lesson-usage-note" class="usage-note"></div>' +
-      '<div class="field"><label>動画ファイル</label>' +
-        '<div id="lesson-file-drop" class="file-drop">タップして動画を選択(標準カメラで撮影したものでもOK)<input id="lesson-file" type="file" accept="video/*"></div>' +
+      '<div class="field"><label>動画ファイル(任意)</label>' +
+        '<div id="lesson-file-drop" class="file-drop">タップして動画を選択(任意・標準カメラで撮影したものでもOK)<input id="lesson-file" type="file" accept="video/*"></div>' +
         '<div class="hint">1本あたり最大' + MAX_FILE_MB + 'MBまで。容量を抑えるコツ: 撮影は10〜20秒程度に短くする / 4K・60fpsではなく1080p・30fpsで撮影する(スロー再生はアプリ側で行うため高フレームレート撮影は不要)。</div>' +
       '</div>' +
       '<div class="field"><label>クラブ・種別タグ</label><input id="lesson-tag" type="text" placeholder="例: アイアン・ラウンドレッスン"></div>' +
@@ -2809,7 +2809,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     document.getElementById("lesson-comment").value = lesson ? lesson.comment : "";
     var fileDrop = document.getElementById("lesson-file-drop");
     fileDrop.classList.remove("has-file");
-    fileDrop.firstChild.textContent = lesson ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(標準カメラで撮影したものでもOK)";
+    fileDrop.firstChild.textContent = lesson ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)";
     document.getElementById("lesson-file").value = "";
     var issueBtns = document.querySelectorAll("#issue-tag-row .issue-tag");
     for (var it = 0; it < issueBtns.length; it++) {
@@ -2841,8 +2841,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
 
     function updateSave(){
-      var hasVideo = editingLessonId ? true : !!selectedFile; // 編集時は動画未変更でもOK
-      saveBtn.disabled = !(hasVideo && tagInput.value.trim() && commentInput.value.trim());
+      // 動画は任意(必須ではない)。クラブ・種別タグとコメントさえ入力されていれば保存できる
+      saveBtn.disabled = !(tagInput.value.trim() && commentInput.value.trim());
     }
     fileInput.onchange = function(e){
       var f = e.target.files[0] || null;
@@ -2851,13 +2851,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         e.target.value = "";
         selectedFile = null;
         fileDrop.classList.remove("has-file");
-        fileDrop.firstChild.textContent = editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(標準カメラで撮影したものでもOK)";
+        fileDrop.firstChild.textContent = editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)";
         updateSave();
         return;
       }
       selectedFile = f;
       fileDrop.classList.toggle("has-file", !!selectedFile);
-      fileDrop.firstChild.textContent = selectedFile ? ("選択済み: " + selectedFile.name + "(" + formatMB(selectedFile.size / (1024 * 1024)) + ")") : (editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(標準カメラで撮影したものでもOK)");
+      fileDrop.firstChild.textContent = selectedFile ? ("選択済み: " + selectedFile.name + "(" + formatMB(selectedFile.size / (1024 * 1024)) + ")") : (editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)");
       updateSave();
     };
     tagInput.oninput = updateSave;
