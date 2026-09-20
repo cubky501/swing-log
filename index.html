@@ -28,11 +28,22 @@
   @media (min-width: 1025px){
     /* デスクトップ幅ではプレビュー用にスマホ枠を再現する */
     #root{display:flex;justify-content:center;padding:24px 12px;}
-    .phone{width:390px;max-width:100%;min-height:800px;border-radius:32px;border:8px solid #050704;box-shadow:0 20px 50px rgba(0,0,0,.5);overflow:hidden;}
+    // 以前はoverflow:hiddenを指定していたが、position:stickyの基準がこの要素になってしまい、
+    // 会員選択エリアの上部固定表示(sticky)がiPadで大きくズレる不具合の原因になっていた。
+    // 角丸のフチから中身が少しはみ出す可能性はあるが、実害は無いためoverflow指定は外している
+    .phone{width:390px;max-width:100%;min-height:800px;border-radius:32px;border:8px solid #050704;box-shadow:0 20px 50px rgba(0,0,0,.5);}
   }
   .statusbar{height:38px;flex:0 0 38px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 6px;font-family:monospace;font-size:12px;color:var(--ink-dim);}
   .screen-wrap{display:block;}
   .topbar{position:sticky;top:0;z-index:6;background:var(--bg);padding:calc(52px + env(safe-area-inset-top)) 18px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-end;}
+  /* 会員選択エリア(教室タブ・検索・会員タグ)がある画面では、ヘッダーとまとめてこの1つの
+     要素をsticky(上部固定)にする。以前はJavaScriptでヘッダーの高さを測って
+     student-select-wrap側の固定位置に反映する方式だったが、iPadで大きな余白ができる
+     不具合があったため、この「ヘッダーごとまとめて固定」方式に変更した。
+     この時、内側のtopbar自身のsticky指定は不要(というより二重になり不具合の元になるため)、
+     ラッパーの中にある時だけ打ち消す */
+  .sticky-header-group{position:sticky;top:0;z-index:6;background:var(--bg);}
+  .sticky-header-group .topbar{position:static;top:auto;z-index:auto;}
   .eyebrow{font-family:monospace;font-size:11px;letter-spacing:.14em;color:var(--turf);text-transform:uppercase;}
   .h1{font-weight:700;font-size:24px;}
   .sub{font-size:11.5px;color:var(--ink-dim);margin-top:2px;}
@@ -131,10 +142,14 @@
 
   .chat-body{display:flex;flex-direction:column;gap:10px;padding-bottom:160px;background:#0b0b0b;margin:0 -16px;padding-left:16px;padding-right:16px;}
   .day-div{align-self:center;font-family:-apple-system,sans-serif;font-weight:700;font-size:13px;color:#0a0d08;background:var(--turf);padding:6px 16px;border-radius:999px;margin:14px 0 10px;}
-  .bubble{max-width:78%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  /* max-widthは78%を指定しない(親の.msg-stackが既に画面幅の78%に制限しているため、
+     ここでさらに78%を掛けると実質61%まで狭まってしまい、短い文章でも不自然な位置で
+     折り返される原因になっていた。100%にして、親の幅いっぱいまでは自然に使えるようにする) */
+  .bubble{max-width:100%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.5;box-shadow:0 1px 3px rgba(0,0,0,.25);}
   .bubble.coach{background:#3a3d3a;border:none;align-self:flex-start;border-bottom-left-radius:4px;color:#ffffff;}
   .bubble.me{background:var(--turf);border:none;align-self:flex-end;border-bottom-right-radius:4px;color:#0a0d08;}
   .bubble-meta{font-family:-apple-system,sans-serif;font-size:10px;color:#8a8a8a;margin:2px 4px;}
+  .read-label{color:var(--turf);font-weight:700;margin-right:5px;}
   .bubble-meta.right{align-self:flex-end;}
   .bubble-meta.left{align-self:flex-start;}
   .msg-actions{display:flex;gap:10px;margin:1px 4px 4px;}
@@ -159,14 +174,19 @@
   .coach-profile-card{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;}
   .kpi{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;}
   .kpi .num{font-size:26px;font-weight:700;color:var(--turf);}
-  .kpi .lbl{font-size:10.5px;color:var(--ink-dim);margin-top:2px;}
+  .kpi .lbl{font-size:10.5px;color:var(--ink-dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .roster-row{display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);}
   .roster-name{font-size:15px;font-weight:700;}
   .roster-loc{font-family:monospace;font-size:10px;font-weight:400;color:var(--sand);background:var(--card-hi);padding:1px 7px;border-radius:999px;margin-left:4px;}
   .roster-sub{font-family:monospace;font-size:12px;color:var(--ink-dim);margin-top:3px;}
-  .checkin-heatmap{display:flex;gap:3px;margin-top:6px;}
+  .checkin-heatmap{display:flex;gap:3px;margin-top:6px;align-items:center;}
   .checkin-cell{width:11px;height:11px;border-radius:3px;background:var(--card-hi);border:1px solid var(--line);}
   .checkin-cell.on{background:var(--turf);border-color:var(--turf);}
+  /* 直近14日の「さらに前」(15〜42日前)を週単位でざっくり示すブロック。1マス=1週間なので、
+     日ごとのマスより意図的に横長にして「粗い解像度」だと視覚的にも伝わるようにしている */
+  .checkin-cell-week{width:7px;height:11px;border-radius:2px;background:var(--card-hi);border:1px solid var(--line);opacity:.7;}
+  .checkin-cell-week.on{background:var(--turf-dim);border-color:var(--turf-dim);opacity:1;}
+  .checkin-heatmap-gap{width:5px;}
   .roster-actions{display:flex;gap:14px;margin-top:8px;}
   .status-dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;}
   .status-dot.warn{background:var(--danger);}
@@ -241,6 +261,7 @@
   .navitem span{font-size:11px;}
   .fab-stack{position:fixed;top:calc(12px + env(safe-area-inset-top));right:12px;z-index:15;display:flex;flex-direction:row;gap:8px;align-items:center;}
   .pin-fab{background:rgba(27,33,26,.85);border:1px solid var(--line);color:var(--sand);font-family:monospace;font-size:10.5px;padding:5px 10px;border-radius:999px;}
+  .notif-stale{background:rgba(201,105,79,.16);border-color:var(--danger);color:var(--danger);font-weight:700;}
   /* 今どちらの立場でログイン中か(コーチ本人 or 管理者(運営))を、常に一目で分かるようにするラベル。
      見た目が同じ2つのログインを間違えて、意図しない名義で操作してしまう事故を防ぐための表示 */
   .role-badge{font-weight:700;pointer-events:none;}
@@ -365,6 +386,12 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 1つのキーを共有すると、管理者が会員のチャットを開いただけでコーチ側も既読(未読バッジ消灯)になってしまい、
   // コーチが実際にはまだ見ていないメッセージを見逃す事故につながるため
   function chatLastReadKeyFor(role){ return role === "admin" ? "admin:chatLastRead" : "coach:chatLastRead"; }
+  // 会員側の「最後にチャットを開いた時刻」。会員は1人につき自分のチャットしか無いため、
+  // コーチ側のような生徒名ごとのマップではなく、単純な1つの時刻を保存するだけでよい
+  function studentChatLastReadKeyFor(name){ return "chat-lastread:" + name; }
+  function markChatReadByStudent(studentName){
+    setJSON(studentChatLastReadKeyFor(studentName), Date.now());
+  }
 
   // iOS Safariは、ホーム画面に追加してそのアイコンから開いた状態(スタンドアロンモード)でないと
   // プッシュ通知の仕組み自体が使えない(2026年時点のApple仕様。通常のSafariタブでは不可)。
@@ -380,6 +407,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
 
   // 通知を有効化する。ボタン押下時に呼ぶ。パーミッション許可→SW登録→トークン取得→Firestoreへ保存、の順で進める
+  var MAX_TOKENS_PER_PERSON = 5; // 1人あたり同時に登録できる端末数の上限(超えた分は古い端末から間引く)
   function enableNotifications(myName, onDone){
     if (!notificationsAvailable()) { if (onDone) onDone(new Error("このブラウザ/環境では通知を利用できません")); return; }
     isSupported().then(function(supported){
@@ -393,19 +421,79 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       }).then(function(token){
         if (!token) throw new Error("トークンを取得できませんでした");
         getFreshJSON(FCM_TOKENS_KEY, {}, function(map){
-          // 以前は「追加」方式だったため、今日のように何度も有効化し直すと、Safariタブで試した時の
-          // 古いトークンとホーム画面から開いた時の新しいトークンが両方残ってしまい、同じ端末なのに
-          // 2件分の通知が送られる不具合があった。「有効にする」を押した端末の最新トークンだけに
-          // 置き換える方式にすることで、この蓄積を防ぐ(1人が複数端末を使うケースは非対応になるが、
-          // 今の運用規模ではこちらを優先する)
-          map[myName] = [token];
+          // 1人が複数端末(iPhone・iPadなど)で通知を受け取れるよう、配列に追加していく方式。
+          // 同じ端末を何度も有効化し直しても(例:ホーム画面アイコンの作り直し等でトークンが
+          // 変わっても)際限なく増えないよう、直近MAX_TOKENS_PER_PERSON台までに間引く
+          var existing = (map[myName] || []).filter(function(t){ return t !== token; });
+          existing.push(token);
+          if (existing.length > MAX_TOKENS_PER_PERSON) existing = existing.slice(existing.length - MAX_TOKENS_PER_PERSON);
+          map[myName] = existing;
           setJSON(FCM_TOKENS_KEY, map);
+          notifStatus = "on";
           if (onDone) onDone(null);
         });
       }).catch(function(e){
         console.error("通知の有効化に失敗", e);
         if (onDone) onDone(e);
       });
+    });
+  }
+  // 通知を無効化する。ブラウザ・OS側の「許可」設定自体は本人にしか取り消せないため、
+  // ここでは「Firestore側の登録を削除する」ことで、実質的に通知が届かない状態にする
+  // (通知ボタンを押し直せば、この端末をまた登録し直して再度有効にできる)。
+  // 複数端末に対応したため、削除するのは「この端末のトークンだけ」にする
+  // (他の端末の登録を巻き込んで消さないように)
+  function disableNotifications(myName, onDone){
+    function removeByToken(token){
+      getFreshJSON(FCM_TOKENS_KEY, {}, function(map){
+        var existing = map[myName] || [];
+        map[myName] = token ? existing.filter(function(t){ return t !== token; }) : [];
+        setJSON(FCM_TOKENS_KEY, map);
+        notifStatus = "off";
+        if (onDone) onDone(null);
+      });
+    }
+    isSupported().then(function(supported){
+      if (!supported) { removeByToken(null); return; }
+      navigator.serviceWorker.ready.then(function(reg){
+        var messaging = getMessaging(fbApp);
+        getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg })
+          .then(function(token){ removeByToken(token); })
+          .catch(function(){ removeByToken(null); }); // トークンが取れなくても、無効化自体は完了させる
+      }).catch(function(){ removeByToken(null); });
+    });
+  }
+
+  // ===== 通知の「本当の」有効状態を確認する =====
+  // 今までは「ブラウザ側で通知が許可されているか」だけを見て「有効」と表示していたが、
+  // 実際にはFirestore側の登録が別の端末に上書きされていたり、トークンが古くなって無効になっている
+  // ケースがあり、その場合は許可済みでも実際には通知が届かない。ここでは
+  // 「この端末の現在のトークン」と「Firestoreに登録されている内容」を突き合わせて、本当に
+  // 有効な状態かどうかを判定する
+  var notifStatus = "unknown"; // "unknown" | "off" | "on" | "stale"(許可はあるが登録が古い/別端末に上書きされている)
+  function checkNotifStatus(myName, cb){
+    if (!notificationsAvailable()) { notifStatus = "off"; if (cb) cb(); return; }
+    if (Notification.permission !== "granted") { notifStatus = "off"; if (cb) cb(); return; }
+    isSupported().then(function(supported){
+      if (!supported) { notifStatus = "off"; if (cb) cb(); return; }
+      // getRegistration()だと、Service Workerがインストール中/待機中でまだ有効化しきっていない
+      // 瞬間にも(不完全な状態のまま)値を返してしまうことがあり、特にアプリを更新した直後に
+      // 「本当は問題ないのに、まだ準備中なだけで一時的にズレていると誤判定される」原因になっていた。
+      // navigator.serviceWorker.readyは「実際に有効化され、ページの制御を始めた状態」まで
+      // 待ってくれるため、こちらを使うことで誤判定を防ぐ
+      navigator.serviceWorker.ready.then(function(reg){
+        var messaging = getMessaging(fbApp);
+        getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
+          getJSON(FCM_TOKENS_KEY, {}, function(map){
+            var registeredList = map[myName] || [];
+            // 複数端末に対応したため、「この端末のトークンが配列のどこかに含まれているか」で判定する
+            // (以前は配列の1つ目だけを見ていたため、2台目以降の端末が常に"stale"扱いになる不具合があった)
+            if (registeredList.length === 0) notifStatus = "off";
+            else notifStatus = (token && registeredList.indexOf(token) !== -1) ? "on" : "stale";
+            if (cb) cb();
+          });
+        }).catch(function(){ notifStatus = "stale"; if (cb) cb(); });
+      }).catch(function(){ notifStatus = "stale"; if (cb) cb(); });
     });
   }
 
@@ -519,7 +607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0903-1919"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0920-1747"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -818,7 +906,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
   // ---- in-memory fallback store (window.storage が使えない環境向け) ----
 
-  function todayKey(){ var d = new Date(); return d.toISOString().slice(0,10); }
+  // toISOString()は常に世界標準時(UTC)基準の日付を返すため、日本時間の午前0時〜8時59分の間は
+  // UTC側ではまだ「前日」として扱われてしまい、「本日ログイン」の判定が1日ズレる不具合があった。
+  // このアプリは日本国内での利用のみを前提としているため、常に日本時間(JST, UTC+9)の日付を
+  // 返すよう修正している(現在時刻に9時間を足してからUTC表記にすることで、実質的に日本時間の日付になる)
+  function todayKey(){ return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0,10); }
   function todayLabel(){ return new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" }); }
   function nowLabel(){ return new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }); }
   // 実際の日付同士の差分で「最後のログインから何日経ったか」を計算する(以前は配列の並びだけで
@@ -834,13 +926,36 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     var set = {};
     (checkinDates || []).forEach(function(d){ if (typeof d === "string") set[d] = true; });
     var days = [];
+    // todayKey()と同じ考え方(日本時間基準)で計算する。ここだけ別ロジックでUTC基準のまま
+    // 残っていたため、日本時間の午前0時〜8時59分にヒートマップの右端(今日)がズレる不具合があった
+    var jstNow = Date.now() + 9 * 60 * 60 * 1000;
     for (var i = 13; i >= 0; i--) {
-      var d = new Date();
-      d.setUTCDate(d.getUTCDate() - i);
+      var d = new Date(jstNow - i * 86400000);
       var key = d.toISOString().slice(0, 10);
       days.push({ key: key, active: !!set[key] });
     }
     return days;
+  }
+  // 直近14日(recentCheckinDays)の「さらに前」、15〜42日前の4週間分を、日ごとではなく
+  // 週ごとにまとめて「だいたいこの週あたりに来ていたか」だけ分かるようにする。
+  // 1ヶ月以上ログインが無い会員が増えても、30日分をそのまま並べると見づらくなるだけなので、
+  // 粗い解像度で「ざっくり動いているか」を確認できれば十分、という考え方
+  function olderCheckinWeeks(checkinDates){
+    var set = {};
+    (checkinDates || []).forEach(function(d){ if (typeof d === "string") set[d] = true; });
+    var jstNow = Date.now() + 9 * 60 * 60 * 1000;
+    var weeks = [];
+    for (var w = 3; w >= 0; w--) {
+      var active = false;
+      for (var i = 0; i < 7; i++) {
+        var daysBack = 14 + w * 7 + i;
+        var d = new Date(jstNow - daysBack * 86400000);
+        var key = d.toISOString().slice(0, 10);
+        if (set[key]) { active = true; break; }
+      }
+      weeks.push({ active: active });
+    }
+    return weeks;
   }
   function esc(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
@@ -1004,7 +1119,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
               '</div>' +
               '<div class="field"><label>教室</label><div class="loc-tags">' +
                 LOCATIONS.map(function(loc){ return '<button type="button" class="loc-tag' + (st.location === loc ? " on" : "") + '" data-loc="' + esc(loc) + '">' + esc(loc) + '</button>'; }).join("") +
-              '</div></div>'
+              '</div></div>' +
+              '<div class="hint" style="margin:-6px 0 14px;">初めての方は、先にコーチから会員登録を受けてからログインしてください。</div>'
             : st.tab === "coach"
             ? '<div style="display:flex;gap:10px;">' +
                 '<div class="field" style="flex:1;"><label>姓</label><input type="text" value="' + esc(COACH_LAST_NAME) + '" disabled style="opacity:.7"></div>' +
@@ -1090,6 +1206,15 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         }
         hashPin(st.pin).then(function(hashed){
           if (users[key] === undefined) {
+            // 会員タブは、コーチが「+ 会員登録」で事前に登録した人だけがPINを新規設定できるようにする。
+            // 見知らぬ名前を名乗るだけで、誰でも勝手に新しい会員として登録されてしまう穴を塞ぐための対応。
+            // コーチ・管理者タブはこれまで通り(最初にログインした人がその枠を確定させる)
+            if (st.tab === "student" && !studentDoc) {
+              st.busy = false;
+              st.error = "この名前はまだ登録されていません。コーチに会員登録を依頼してください。";
+              renderLogin();
+              return;
+            }
             users[key] = hashed;
             setJSON(USERS_KEY, users);
             proceed();
@@ -1248,6 +1373,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
                 unreadSet[s.name] = true;
               }
             });
+            // 未読の会員を一覧の先頭にまとめる(未読同士・既読同士の中では、
+            // 元のあいうえお順を維持する。Array.sortは安定ソートなので、これで実現できる)
+            filtered = filtered.slice().sort(function(a, b){
+              var au = unreadSet[a.name] ? 0 : 1;
+              var bu = unreadSet[b.name] ? 0 : 1;
+              return au - bu;
+            });
             buildSelectorAndFinish(unreadSet);
           });
         });
@@ -1282,6 +1414,30 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         }
         return;
       }
+
+      // 会員タグをタップするたびに横スクロール一覧が丸ごと作り直されるため、そのままだと
+      // スクロール位置がリセットされて毎回先頭(左端)に戻ってしまう。選んだ会員のタグを
+      // 常に表示範囲内(横方向)に来るようスクロールし直すことで、連続してタップしても
+      // 位置が飛ばないようにする。
+      // (会員選択エリアの上部固定表示自体は、CSSの.sticky-header-groupで行っている。
+      // 以前はここでJavaScriptがヘッダーの高さを測って位置を合わせていたが、iPadで
+      // 大きな余白ができる不具合の原因になっていたため、CSSだけで完結する方式に変更した)
+      // 注意: renderBody(チャット・マイページ等)はデータ取得のため非同期にcontainer.innerHTMLを
+      // 後から書き換えることが多く、ここで即座に処理しても対象がまだDOMに無く効かないことがあった。
+      // そのため、対象が実際にDOMへ現れるまで監視してから実行する
+      (function(){
+        function applyFixes(){
+          var tagEl = container.querySelector(".student-tag.on");
+          if (tagEl) tagEl.scrollIntoView({ inline: "center", block: "nearest" });
+          return !!tagEl;
+        }
+        if (applyFixes()) return; // 既に描画済み(同期描画のケース)ならここで完了
+        var mo = new MutationObserver(function(){
+          if (applyFixes()) mo.disconnect();
+        });
+        mo.observe(container, { childList: true, subtree: true });
+        setTimeout(function(){ mo.disconnect(); }, 5000); // 万一見つからなくても監視を残しっぱなしにしない
+      })();
 
       // 教室タブ・生徒タグの反応をイベント委任(container自体に1回だけ仕込む)で処理する。
       // renderBody(マイページ等)が生徒データ取得のため非同期に container.innerHTML を
@@ -1372,6 +1528,49 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
 
   /* ================= SHELL ================= */
+  // 通知ボタンの表示。checkNotifStatus()で判定した3状態を反映する。
+  // "stale"(許可はあるがFirestore側の登録が古い・別端末に上書きされている)の場合は、
+  // 「有効」と見せかけて実は届かない、という事故を防ぐため、はっきり分かる見た目にする。
+  // "on"の状態からタップした場合は、有効化ではなく無効化の操作になる(wireNotifBtn側で分岐)。
+  // ラベルは「通知」「有効」のようなバラバラの単語だとON/OFFの対比が分かりづらかったため、
+  // 「通知On」「通知Off」で統一している
+  function notifBtnHtml(){
+    if (Notification.permission !== "granted") return '<button id="notif-btn" class="pin-fab">🔕 通知Off</button>';
+    if (notifStatus === "stale") return '<button id="notif-btn" class="pin-fab notif-stale">⚠️ 通知要再設定</button>';
+    if (notifStatus === "on") return '<button id="notif-btn" class="pin-fab">🔔 通知On</button>';
+    return '<button id="notif-btn" class="pin-fab">🔕 通知Off</button>'; // 許可はあるが未登録(初回、または手動で無効化した状態)
+  }
+  function wireNotifBtn(){
+    var notifBtn = document.getElementById("notif-btn");
+    if (!notifBtn) return;
+    notifBtn.onclick = function(){
+      notifBtn.disabled = true;
+      if (notifStatus === "on") {
+        // 既に有効な状態からタップした場合は「無効化」の操作として扱う
+        if (!confirm("通知を無効にしますか?この端末には、新しいチャットが届いても通知されなくなります。")) {
+          notifBtn.disabled = false;
+          return;
+        }
+        notifBtn.textContent = "設定中…";
+        disableNotifications(session.name, function(err){
+          notifBtn.disabled = false;
+          if (err) { alert("無効化に失敗しました: " + err.message); notifBtn.textContent = "🔔 通知On"; return; }
+          notifBtn.outerHTML = notifBtnHtml();
+          wireNotifBtn();
+          alert("通知を無効にしました。");
+        });
+        return;
+      }
+      notifBtn.textContent = "設定中…";
+      enableNotifications(session.name, function(err){
+        notifBtn.disabled = false;
+        if (err) { notifBtn.textContent = "🔕 通知Off"; alert("通知を有効にできませんでした: " + err.message); return; }
+        notifBtn.outerHTML = notifBtnHtml();
+        wireNotifBtn();
+        alert("通知を有効にしました。新しいチャットが届くとお知らせします。");
+      });
+    };
+  }
   function renderShell(){
     var tabs = isStaff()
       ? [{ id: "lesson", label: "レッスン" }, { id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }, { id: "roster", label: "会員管理" }]
@@ -1385,7 +1584,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '<div class="phone">' +
         '<div class="fab-stack">' +
           (isStaff() ? '<span class="pin-fab role-badge' + (session.role === "admin" ? " role-badge-admin" : "") + '">' + (session.role === "admin" ? "管理者" : "コーチ") + '</span>' : '') +
-          (notificationsAvailable() ? '<button id="notif-btn" class="pin-fab">' + (Notification.permission === "granted" ? "🔔 有効" : "🔔 通知") + '</button>' :
+          (notificationsAvailable() ? notifBtnHtml() :
             (FCM_VAPID_KEY && isIOS() && !isStandaloneMode() ? '<span class="pin-fab" style="opacity:.75;">🔔 要ホーム画面追加</span>' : '')) +
           '<button id="pin-change-btn" class="pin-fab">PIN</button>' +
         '</div>' +
@@ -1408,16 +1607,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     if (isStaff()) wireStudentFormSheet();
     if (isStaff()) wireCoachProfileSheet();
     if (isStaff()) wireRenameSheet();
-    var notifBtn = document.getElementById("notif-btn");
-    if (notifBtn) notifBtn.onclick = function(){
-      notifBtn.disabled = true;
-      notifBtn.textContent = "設定中…";
-      enableNotifications(session.name, function(err){
-        notifBtn.disabled = false;
-        if (err) { notifBtn.textContent = "🔔 通知"; alert("通知を有効にできませんでした: " + err.message); }
-        else { notifBtn.textContent = "🔔 有効"; alert("通知を有効にしました。新しいチャットが届くとお知らせします。"); }
-      });
-    };
+    wireNotifBtn();
 
     var screen = document.getElementById("screen");
     if (tab === "mypage") renderMyPage(screen);
@@ -2341,7 +2531,37 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
 
   function drawMyPage(container, studentName, lessons, messages, selectorHtml, studentRecord, coachProfile, lessonPlan){
-    var questionCount = messages.filter(function(m){ return m.type === "video" && m.from === "student"; }).length;
+    // 指定した暦月(日本時間基準)のレッスン回数を数える。会員ごとに月の上限回数が決まっているため、
+    // 「今月あと何回使ったか」「先月は何回だったか」が一目で分かるようにする。
+    // 1回のレッスンでも動画を複数登録することがある(クラブ別など)ため、レッスンノートの
+    // 「件数」ではなく「日付の種類数」でカウントする(1日に2回レッスンに来る会員はいない前提)。
+    // dateKey(実際のレッスン日、翌日以降にまとめて記録した場合はそちらを優先)があればそれを使い、
+    // 無い場合(dateKeyを持たない古い記録)はidの作成日時から日付を求める
+    function countLessonDaysInMonth(year, month){
+      var set = {};
+      lessons.forEach(function(l){
+        var y, mo, da;
+        if (l.dateKey) {
+          var parts = l.dateKey.split("-");
+          y = parseInt(parts[0], 10); mo = parseInt(parts[1], 10) - 1; da = parseInt(parts[2], 10);
+        } else {
+          var ts = parseTsFromId(l.id, "l-");
+          if (ts <= 0) return;
+          var d = new Date(ts + 9 * 60 * 60 * 1000);
+          y = d.getUTCFullYear(); mo = d.getUTCMonth(); da = d.getUTCDate();
+        }
+        if (y === year && mo === month) set[y + "-" + mo + "-" + da] = true;
+      });
+      return Object.keys(set).length;
+    }
+    var nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    var curYear = nowJst.getUTCFullYear();
+    var curMonth = nowJst.getUTCMonth();
+    var thisMonthLessonCount = countLessonDaysInMonth(curYear, curMonth);
+    // 先月(1月なら前年12月になる)
+    var lastMonthYear = curMonth === 0 ? curYear - 1 : curYear;
+    var lastMonthMonth = curMonth === 0 ? 11 : curMonth - 1;
+    var lastMonthLessonCount = countLessonDaysInMonth(lastMonthYear, lastMonthMonth);
 
     // ---- 指摘カテゴリの集計(頻出ポイント・傾向) ----
     // 「良かった点」は課題ではなく前向きな評価なので、この集計(頻出の指摘ポイント)には含めない
@@ -2437,6 +2657,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     if (studentRecord && studentRecord.golfHistory) scoreParts2.push("ゴルフ歴 " + studentRecord.golfHistory);
     if (studentRecord && studentRecord.avgRounds) scoreParts2.push("年間ラウンド " + studentRecord.avgRounds);
     container.innerHTML =
+      '<div class="sticky-header-group">' +
       '<div class="topbar"><div style="display:flex;align-items:center;gap:10px;">' +
         (studentRecord && studentRecord.photoUrl ? '<div class="avatar" style="width:44px;height:44px;flex:0 0 44px;"><img class="avatar-photo" src="' + esc(studentRecord.photoUrl) + '"></div>' : '') +
         '<div>' +
@@ -2446,10 +2667,12 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '</div>' +
       '</div></div>' +
       selectorHtml +
+      '</div>' +
       '<div class="content">' +
         '<div class="kpi-row">' +
           '<div class="kpi"><div class="num">' + lessons.length + '</div><div class="lbl">レッスン本数</div></div>' +
-          '<div class="kpi"><div class="num">' + questionCount + '</div><div class="lbl">質問した回数</div></div>' +
+          '<div class="kpi"><div class="num">' + lastMonthLessonCount + '</div><div class="lbl">先月レッスン回数</div></div>' +
+          '<div class="kpi"><div class="num">' + thisMonthLessonCount + '</div><div class="lbl">今月レッスン回数</div></div>' +
         '</div>' +
         aiSummarySectionHtml(lessons.length) +
         lessonPlanSectionHtml(lessons.length, lessonPlan, coachProfile) +
@@ -2494,7 +2717,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
                 '<button data-rate="0.5">0.5x</button>' +
                 '<button data-rate="0.25">0.25x</button>' +
               '</div>'
-            : (l.thumb ? '<img src="' + esc(l.thumb) + '" alt="" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div class=media-fallback>画像を読み込めませんでした</div>\')">' : '<div class="media-fallback">画像なし</div>');
+            : (l.thumb ? '<img src="' + esc(l.thumb) + '" alt="" onerror="this.style.display=\'none\';this.insertAdjacentHTML(\'afterend\',\'<div class=media-fallback>画像を読み込めませんでした</div>\')">' : '<div class="media-fallback">動画なし</div>');
           // 日付が変わるところにだけ見出しを出す(同じ日付のレッスンが続く間は出さない)
           var dateHeader = l.date !== lastFeedDate
             ? '<div class="tl-date-header"' + (i === 0 ? ' style="margin-top:4px;"' : '') + '><span class="chip">' + esc(l.date) + '</span><span class="tick"></span></div>'
@@ -2515,11 +2738,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         }).join("");
 
     container.innerHTML =
+      '<div class="sticky-header-group">' +
       '<div class="topbar">' +
         '<div><div class="eyebrow">Lesson Note</div><div class="h1">スイング記録</div><div class="sub">' + (isStaff() ? "会員：" + esc(studentName) : "担当コーチ：" + esc(coachProfile.name)) + ' ／ 全' + lessons.length + '本</div></div>' +
         (canAdd ? '<button id="add-lesson-btn" class="add-btn">＋ 追加</button>' : '') +
       '</div>' +
       selectorHtml +
+      '</div>' +
       '<div class="content">' + cardsHtml + '</div>' +
       (canAdd ? addLessonSheetHtml() : '');
 
@@ -2571,10 +2796,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     return '<div id="lesson-sheet" class="modal-back hidden"><div class="sheet">' +
       '<div class="sheet-title" id="lesson-sheet-title">レッスン動画を追加</div>' +
       '<div id="lesson-usage-note" class="usage-note"></div>' +
-      '<div class="field"><label>動画ファイル</label>' +
-        '<div id="lesson-file-drop" class="file-drop">タップして動画を選択(標準カメラで撮影したものでもOK)<input id="lesson-file" type="file" accept="video/*"></div>' +
+      '<div class="field"><label>動画ファイル(任意)</label>' +
+        '<div id="lesson-file-drop" class="file-drop">タップして動画を選択(任意・標準カメラで撮影したものでもOK)<input id="lesson-file" type="file" accept="video/*"></div>' +
         '<div class="hint">1本あたり最大' + MAX_FILE_MB + 'MBまで。容量を抑えるコツ: 撮影は10〜20秒程度に短くする / 4K・60fpsではなく1080p・30fpsで撮影する(スロー再生はアプリ側で行うため高フレームレート撮影は不要)。</div>' +
       '</div>' +
+      '<div class="field"><label>レッスン日</label><input id="lesson-date" type="date"></div>' +
       '<div class="field"><label>クラブ・種別タグ</label><input id="lesson-tag" type="text" placeholder="例: アイアン・ラウンドレッスン"></div>' +
       '<div class="field"><label>指摘カテゴリ・良かった点(任意・集計に使われます)</label><div class="issue-tag-row" id="issue-tag-row">' +
         TAG_SELECT_OPTIONS.map(function(t){ return '<button type="button" class="issue-tag' + (t === POSITIVE_TAG ? " issue-tag-positive" : "") + '" data-issue="' + esc(t) + '">' + esc(t) + '</button>'; }).join("") +
@@ -2593,11 +2819,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     editingLessonId = lesson ? lesson.id : null;
     selectedIssueTag = lesson ? (lesson.issueTag || null) : null;
     document.getElementById("lesson-sheet-title").textContent = lesson ? "レッスンを編集" : "レッスン動画を追加";
+    // レッスン当日ではなく翌日以降にまとめて記録することもあるため、日付を選べるようにしている。
+    // 新規追加時は今日の日付を初期値にし、編集時は保存済みの日付(無ければ今日)を出す
+    document.getElementById("lesson-date").value = (lesson && lesson.dateKey) ? lesson.dateKey : todayKey();
     document.getElementById("lesson-tag").value = lesson ? lesson.tag : "";
     document.getElementById("lesson-comment").value = lesson ? lesson.comment : "";
     var fileDrop = document.getElementById("lesson-file-drop");
     fileDrop.classList.remove("has-file");
-    fileDrop.firstChild.textContent = lesson ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(標準カメラで撮影したものでもOK)";
+    fileDrop.firstChild.textContent = lesson ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)";
     document.getElementById("lesson-file").value = "";
     var issueBtns = document.querySelectorAll("#issue-tag-row .issue-tag");
     for (var it = 0; it < issueBtns.length; it++) {
@@ -2629,8 +2858,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
 
     function updateSave(){
-      var hasVideo = editingLessonId ? true : !!selectedFile; // 編集時は動画未変更でもOK
-      saveBtn.disabled = !(hasVideo && tagInput.value.trim() && commentInput.value.trim());
+      // 動画は任意(必須ではない)。クラブ・種別タグとコメントさえ入力されていれば保存できる
+      saveBtn.disabled = !(tagInput.value.trim() && commentInput.value.trim());
     }
     fileInput.onchange = function(e){
       var f = e.target.files[0] || null;
@@ -2639,13 +2868,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         e.target.value = "";
         selectedFile = null;
         fileDrop.classList.remove("has-file");
-        fileDrop.firstChild.textContent = editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(標準カメラで撮影したものでもOK)";
+        fileDrop.firstChild.textContent = editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)";
         updateSave();
         return;
       }
       selectedFile = f;
       fileDrop.classList.toggle("has-file", !!selectedFile);
-      fileDrop.firstChild.textContent = selectedFile ? ("選択済み: " + selectedFile.name + "(" + formatMB(selectedFile.size / (1024 * 1024)) + ")") : (editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(標準カメラで撮影したものでもOK)");
+      fileDrop.firstChild.textContent = selectedFile ? ("選択済み: " + selectedFile.name + "(" + formatMB(selectedFile.size / (1024 * 1024)) + ")") : (editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)");
       updateSave();
     };
     tagInput.oninput = updateSave;
@@ -2654,16 +2883,22 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     saveBtn.onclick = function(){
       if (saveBtn.disabled) return;
       var tag = tagInput.value.trim(), comment = commentInput.value.trim();
+      // 選んだ日付(YYYY-MM-DD)を、表示用の「9月20日(日)」形式に変換する。
+      // 正午を指定しているのは、深夜0時ちょうどだとタイムゾーンの丸め方次第で前日にズレることがあるため
+      var dateKey = document.getElementById("lesson-date").value || todayKey();
+      var dateLabel = new Date(dateKey + "T12:00:00").toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" });
 
       function finishSave(videoUrl, sizeBytes){
         var next;
         if (editingLessonId) {
           next = lessons.map(function(l){
-            return l.id === editingLessonId ? Object.assign({}, l, { tag: tag, comment: comment, issueTag: selectedIssueTag, videoUrl: videoUrl !== undefined ? videoUrl : l.videoUrl, sizeBytes: sizeBytes !== undefined ? sizeBytes : l.sizeBytes }) : l;
+            return l.id === editingLessonId ? Object.assign({}, l, { tag: tag, comment: comment, issueTag: selectedIssueTag, dateKey: dateKey, date: dateLabel, videoUrl: videoUrl !== undefined ? videoUrl : l.videoUrl, sizeBytes: sizeBytes !== undefined ? sizeBytes : l.sizeBytes }) : l;
           });
         } else {
-          // 管理者(運営)が記録した場合は「運営」名義で残す。コーチが記録した場合は今まで通りプロフィール名
-          next = [{ id: "l-" + Date.now(), coach: (session.role === "admin" ? "運営" : coachProfile.name), date: todayLabel(), tag: tag, comment: comment, issueTag: selectedIssueTag, thumb: null, videoUrl: videoUrl, sizeBytes: sizeBytes, isNew: true }].concat(lessons);
+          // 管理者(運営)が記録した場合は「運営」名義で残す。コーチが記録した場合は今まで通りプロフィール名。
+          // idは「いつ記録を作成したか」、dateKey/dateは「実際にレッスンがあった日」を表す。
+          // 翌日以降にまとめて記録することもあるため、この2つは必ずしも一致しない
+          next = [{ id: "l-" + Date.now(), coach: (session.role === "admin" ? "運営" : coachProfile.name), dateKey: dateKey, date: dateLabel, tag: tag, comment: comment, issueTag: selectedIssueTag, thumb: null, videoUrl: videoUrl, sizeBytes: sizeBytes, isNew: true }].concat(lessons);
         }
         setJSON(key, next);
         renderFeed(container);
@@ -2740,9 +2975,18 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           if (container._renderGen !== myRenderGen) return;
           getJSON(key, [], function(messages){
             if (container._renderGen !== myRenderGen) return;
-            if (isStaff()) markChatReadByCoach(studentName); // 開いた時点で既読にする
-            drawChat(container, messages, studentName, key, selectorHtml || "", studentRecord, coachProfile);
-            subscribeChatRealtime(container, key, studentName, selectorHtml || "", studentRecord, coachProfile, myRenderGen);
+            // 既読表示のため、コーチ・会員それぞれの「最後に読んだ時刻」を取得しておく
+            getJSON(chatLastReadKeyFor("coach"), {}, function(coachLastReadMap){
+              if (container._renderGen !== myRenderGen) return;
+              getJSON(studentChatLastReadKeyFor(studentName), 0, function(studentLastRead){
+                if (container._renderGen !== myRenderGen) return;
+                if (isStaff()) markChatReadByCoach(studentName); // 開いた時点で既読にする
+                else markChatReadByStudent(studentName);
+                var coachLastRead = coachLastReadMap[studentName] || 0;
+                drawChat(container, messages, studentName, key, selectorHtml || "", studentRecord, coachProfile, coachLastRead, studentLastRead);
+                subscribeChatRealtime(container, key, studentName, selectorHtml || "", studentRecord, coachProfile, myRenderGen, coachLastRead, studentLastRead);
+              });
+            });
           });
         });
       });
@@ -2752,7 +2996,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // チャット画面を開いている間、相手からの新着メッセージをリロード無しで反映するための購読。
   // タブを離れる・会員を切り替える際は必ず detachChatListener() で止める(このタブ以外の画面を
   // 誤って上書きしないよう、コールバック内でも tab と renderGen の両方を確認する)
-  function subscribeChatRealtime(container, key, studentName, selectorHtml, studentRecord, coachProfile, myRenderGen){
+  function subscribeChatRealtime(container, key, studentName, selectorHtml, studentRecord, coachProfile, myRenderGen, coachLastRead, studentLastRead){
     activeChatUnsub = onSnapshot(doc(db, "appState", sanitizeKey(key)), function(snap){
       if (tab !== "chat" || container._renderGen !== myRenderGen) return; // 別画面・別会員に移動済みなら何もしない
       var value = (snap.exists() && snap.data().value !== undefined)
@@ -2762,11 +3006,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       // 内容が変わっていなければ再描画しない(入力中のテキストが消えるのを無駄に避ける)
       if (JSON.stringify(dataCache[key]) === JSON.stringify(value)) return;
       dataCache[key] = value;
-      if (isStaff()) markChatReadByCoach(studentName);
+      var myNewLastRead = Date.now();
+      if (isStaff()) { markChatReadByCoach(studentName); coachLastRead = myNewLastRead; }
+      else { markChatReadByStudent(studentName); studentLastRead = myNewLastRead; }
       // 入力中の下書きテキストは、相手からの新着で画面が再描画されても消えないよう保持する
       var textInputEl = document.getElementById("chat-text");
       var draftText = textInputEl ? textInputEl.value : "";
-      drawChat(container, value, studentName, key, selectorHtml, studentRecord, coachProfile);
+      drawChat(container, value, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       if (draftText) {
         var newTextInputEl = document.getElementById("chat-text");
         var newSendBtn = document.getElementById("chat-send");
@@ -2778,7 +3024,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
   }
 
-  function drawChat(container, messages, studentName, key, selectorHtml, studentRecord, coachProfile){
+  function drawChat(container, messages, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead){
     // 送信者ごとのアイコン(生徒・コーチ・管理者(運営)とも、登録写真があればそれ、無ければ頭文字)
     function avatarHtml(m){
       if (m.from === "student" && studentRecord && studentRecord.photoUrl) {
@@ -2798,10 +3044,21 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     // (平山/運営)を表示する。運営が一度も関わっていないチャット(大半のケース)では、
     // 今まで通りラベル無しのすっきりした見た目のままにする
     var threadHasAdminMessage = messages.some(function(msg){ return msg.authorRole === "admin"; });
+    // ===== 既読表示(LINEのような仕組み) =====
+    // 「自分側の一番新しい発言」だけに既読/未読を出す(全メッセージに付けると煩雑になるため)。
+    // 会員から見る「コーチ既読」は、あえてコーチ自身が読んだ時刻だけを基準にする(運営が見ても
+    // 既読にはならない)。逆にコーチ・管理者から見る「会員既読」は、会員側の閲覧時刻のみで判定する
+    // (会員は1人なので、コーチが見ても管理者が見ても同じ基準になる)
+    var myLastOwnMsgIndex = -1;
+    for (var mi = messages.length - 1; mi >= 0; mi--) {
+      var isMyOwnSide = viewerIsStaff ? (messages[mi].from === "coach") : (messages[mi].from === "student");
+      if (isMyOwnSide) { myLastOwnMsgIndex = mi; break; }
+    }
+    var otherPartyLastRead = viewerIsStaff ? (studentLastRead || 0) : (coachLastRead || 0);
     var lastDay = null;
     var bodyHtml = messages.length === 0
       ? '<div class="empty">まだメッセージがありません。</div>'
-      : messages.map(function(m){
+      : messages.map(function(m, mi){
           var msgIsStaff = m.from === "coach"; // fromは表示位置専用に正規化済み("coach"=スタッフ側)
           // 吹き出しの左右は「スタッフ側かどうか」で決める。コーチが見ても管理者が見ても、
           // 相手が会員なら会員が左・スタッフ(自分含む)は右、という同じ並びになる
@@ -2816,6 +3073,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
             : "";
           var dayHtml = "";
           if (m.day !== lastDay) { dayHtml = '<div class="day-div">' + esc(m.day) + '</div>'; lastDay = m.day; }
+          // 自分側の一番新しい発言(myLastOwnMsgIndex)にだけ、相手がそこまで読んでいれば「既読」を出す
+          var readLabelHtml = (mi === myLastOwnMsgIndex && otherPartyLastRead >= parseTsFromId(m.id, "m-"))
+            ? '<span class="read-label">既読</span>' : "";
           var actionsHtml = mine
             ? '<div class="msg-actions ' + (side === "coach" ? "left" : "right") + '">' +
                 (m.type === "text" ? '<button class="msg-edit" data-id="' + esc(m.id) + '">編集</button>' : '') +
@@ -2823,22 +3083,26 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
               '</div>'
             : "";
           var rowInner;
+          var metaHtml = '<div class="bubble-meta ' + (side === "coach" ? "left" : "right") + '">' +
+            (side === "me" ? readLabelHtml : "") + esc(m.time) +
+          '</div>';
           if (m.type === "text") {
             rowInner = authorLabelHtml + '<div class="bubble ' + side + '" data-id="' + esc(m.id) + '">' + esc(m.text) + '</div>' +
-              '<div class="bubble-meta ' + (side === "coach" ? "left" : "right") + '">' + esc(m.time) + '</div>' + actionsHtml;
+              metaHtml + actionsHtml;
           } else {
             rowInner = authorLabelHtml + '<div class="video-bubble">' +
                 '<video src="' + esc(m.videoUrl) + '" controls playsinline preload="metadata"></video>' +
                 '<span class="pill">質問動画</span>' +
               '</div>' +
               (m.caption ? '<div class="bubble ' + side + '" data-id="' + esc(m.id) + '">' + esc(m.caption) + '</div>' : "") +
-              '<div class="bubble-meta ' + (side === "coach" ? "left" : "right") + '">' + esc(m.time) + '</div>' + actionsHtml;
+              metaHtml + actionsHtml;
           }
           return dayHtml +
             '<div class="msg-row ' + side + '">' + avatarHtml(m) + '<div class="msg-stack">' + rowInner + '</div></div>';
         }).join("");
 
     container.innerHTML =
+      '<div class="sticky-header-group">' +
       '<div class="topbar"><div style="display:flex;align-items:center;gap:10px;">' +
         (isStaff()
           ? (studentRecord && studentRecord.photoUrl
@@ -2850,6 +3114,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '<div style="font-size:14px;font-weight:700;">' + (isStaff() ? esc(studentName) + " 様" : esc(coachProfile.name) + " コーチ") + '</div>' +
       '</div></div>' +
       selectorHtml +
+      '</div>' +
       '<div id="chat-scroll" class="content chat-body">' + bodyHtml + '</div>' +
       '<div id="chat-file-chip"></div>' +
       '<div class="inputbar">' +
@@ -2894,7 +3159,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         if (!newText) return;
         var next = messages.map(function(x){ return x.id === id ? Object.assign({}, x, { text: newText }) : x; });
         setJSON(key, next);
-        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       };
     }
     var delBtns = container.querySelectorAll(".msg-delete");
@@ -2907,7 +3172,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         if (target && target.videoUrl) deleteUploadedFile(target.videoUrl);
         var next = messages.filter(function(x){ return x.id !== id; });
         setJSON(key, next);
-        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       };
     }
 
@@ -2958,7 +3223,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
             var next = messages.concat([entry]);
             setJSON(key, next);
             markChatActivity(studentName, session.role);
-            drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+            drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
           }, function(err){
             sendBtn.disabled = false;
             textInput.disabled = false;
@@ -2970,7 +3235,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         var next = messages.concat([entry]);
         setJSON(key, next);
         markChatActivity(studentName, session.role);
-        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile);
+        drawChat(container, next, studentName, key, selectorHtml, studentRecord, coachProfile, coachLastRead, studentLastRead);
       }
     }
   }
@@ -3124,10 +3389,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
   }
 
+  var INACTIVE_THRESHOLD_DAYS = 30; // 「未ログイン」として警告表示する日数のしきい値(以前は7日だったが、1ヶ月に変更)
   function drawRoster(container, students, usageMap, coachProfile){
     usageMap = usageMap || {};
     var total = students.length;
-    var inactive = students.filter(function(s){ return daysSinceLastCheckin(s.lastCheckinDate) >= 7; }).length;
+    var inactive = students.filter(function(s){ return daysSinceLastCheckin(s.lastCheckinDate) >= INACTIVE_THRESHOLD_DAYS; }).length;
 
     var filteredStudents = students.filter(function(s){
       if (!coachRosterSearch) return true;
@@ -3142,7 +3408,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       ? '<div class="empty">' + (students.length === 0 ? "まだ会員がログインしていません。\n会員がログインすると自動でここに表示されます。" : "該当する会員がいません。") + '</div>'
       : filteredStudents.map(function(s){
           var since = daysSinceLastCheckin(s.lastCheckinDate);
-          var warn = since >= 7;
+          var warn = since >= INACTIVE_THRESHOLD_DAYS;
           var usedMB = (usageMap[s.name] || 0) / (1024 * 1024);
           var usedPct = Math.min(100, Math.round((usedMB / STUDENT_CAP_MB) * 100));
           var overCap = usedMB >= STUDENT_CAP_MB;
@@ -3151,6 +3417,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           if (s.bestScore != null && s.bestScore !== "") scoreParts.push("ベスト " + s.bestScore);
           if (s.avgScore != null && s.avgScore !== "") scoreParts.push("平均 " + s.avgScore);
           var heatmapHtml = '<div class="checkin-heatmap">' +
+            olderCheckinWeeks(s.checkins).map(function(w){ return '<span class="checkin-cell-week' + (w.active ? " on" : "") + '"></span>'; }).join("") +
+            '<span class="checkin-heatmap-gap"></span>' +
             recentCheckinDays(s.checkins).map(function(d){ return '<span class="checkin-cell' + (d.active ? " on" : "") + '"></span>'; }).join("") +
             '</div>';
           return '<div class="roster-row">' +
@@ -3187,7 +3455,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '</div>' +
         '<div class="kpi-row">' +
           '<div class="kpi"><div class="num">' + total + '</div><div class="lbl">担当会員数</div></div>' +
-          '<div class="kpi"><div class="num">' + inactive + '</div><div class="lbl">7日以上未ログイン</div></div>' +
+          '<div class="kpi"><div class="num">' + inactive + '</div><div class="lbl">1ヶ月以上未ログイン</div></div>' +
         '</div>' +
         '<div class="yardage" style="margin-top:22px;"><span class="tick"></span><span class="num">会員一覧</span><span class="tick"></span></div>' +
         '<div class="student-search-row">' +
@@ -3405,6 +3673,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         parsed.push({
           id: "l-" + (d.getTime() + i), // 同日複数件でもIDが重複しないようiを加算
           coach: coachProfile.name,
+          dateKey: dateStr, // 貼り付けられた日付(YYYY-MM-DD)をそのまま使う
           date: d.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }),
           tag: tag,
           comment: comment,
@@ -3539,6 +3808,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
             return {
               id: "l-" + (d.getTime() + i) + "-" + sanitizeKey(name),
               coach: coachProfile.name,
+              dateKey: r.date, // Excelから読み取った日付(YYYY-MM-DD)をそのまま使う
               date: d.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }),
               tag: "過去レッスン",
               comment: r.comment,
@@ -3622,6 +3892,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   render();
   if (session && session.role === "student") recordCheckin(session.name, function(){});
   setupForegroundNotifications();
+  // 通知ボタンの表示を「本当に有効かどうか」の判定結果に更新する(起動直後は一旦仮の表示のまま
+  // 出しているので、判定が終わり次第、必要であれば正しい見た目に差し替える)
+  if (session) {
+    checkNotifStatus(session.name, function(){
+      var btn = document.getElementById("notif-btn");
+      if (btn) { btn.outerHTML = notifBtnHtml(); wireNotifBtn(); }
+    });
+  }
   // アプリを新しく起動した場合(通知をタップして開いた場合など)は「裏から前面に戻ってきた」という
   // 変化が発生しないため、visibilitychangeのイベントが一度も起きずバッジが消えないことがあった。
   // 起動した瞬間に必ず1回、無条件でバッジをクリアしておく
