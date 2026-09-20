@@ -2534,6 +2534,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     // 指定した暦月(日本時間基準)のレッスン回数を数える。会員ごとに月の上限回数が決まっているため、
     // 「今月あと何回使ったか」「先月は何回だったか」が一目で分かるようにする。
     // 1回のレッスンでも動画を複数登録することがある(クラブ別など)ため、レッスンノートの
+<<<<<<< HEAD
     // 「件数」ではなく「日付の種類数」でカウントする(1日に2回レッスンに来る会員はいない前提)。
     // dateKey(実際のレッスン日、翌日以降にまとめて記録した場合はそちらを優先)があればそれを使い、
     // 無い場合(dateKeyを持たない古い記録)はidの作成日時から日付を求める
@@ -2551,6 +2552,18 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           y = d.getUTCFullYear(); mo = d.getUTCMonth(); da = d.getUTCDate();
         }
         if (y === year && mo === month) set[y + "-" + mo + "-" + da] = true;
+=======
+    // 「件数」ではなく「日付の種類数」でカウントする(1日に2回レッスンに来る会員はいない前提)
+    function countLessonDaysInMonth(year, month){
+      var set = {};
+      lessons.forEach(function(l){
+        var ts = parseTsFromId(l.id, "l-");
+        if (ts <= 0) return;
+        var d = new Date(ts + 9 * 60 * 60 * 1000);
+        if (d.getUTCFullYear() === year && d.getUTCMonth() === month) {
+          set[d.getUTCFullYear() + "-" + d.getUTCMonth() + "-" + d.getUTCDate()] = true;
+        }
+>>>>>>> 8605d778ca005f4e1069f1ae1acad53fa327564d
       });
       return Object.keys(set).length;
     }
