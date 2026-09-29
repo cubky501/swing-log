@@ -131,6 +131,23 @@
   .club-tag{position:absolute;left:10px;bottom:10px;background:rgba(10,13,9,.72);border:1px solid rgba(255,255,255,.12);color:var(--sand);font-family:monospace;font-size:11px;padding:3px 9px;border-radius:999px;}
   .new-badge{position:absolute;top:10px;right:10px;background:var(--turf);color:#0a0d08;font-family:monospace;font-size:10px;font-weight:700;padding:3px 9px;border-radius:999px;}
   .card-body{padding:13px 14px 15px;}
+  .ev-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;cursor:pointer;}
+  .ev-card.pending{border-color:var(--turf);background:rgba(141,224,85,.06);}
+  .ev-type-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--card-hi);color:var(--sand);margin-right:6px;}
+  .ev-status-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;}
+  .ev-status-badge.open{background:rgba(211,168,106,.18);color:var(--sand);}
+  .ev-status-badge.confirmed{background:rgba(141,224,85,.15);color:var(--turf);}
+  .ev-status-badge.done{background:var(--card-hi);color:var(--ink-dim);}
+  .ev-title{font-weight:700;font-size:16px;margin:8px 0 4px;}
+  .ev-meta{font-size:12.5px;color:var(--ink-dim);line-height:1.7;}
+  .ev-tally-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px;}
+  .ev-tally-table th,.ev-tally-table td{border:1px solid var(--line);padding:6px 4px;text-align:center;}
+  .ev-tally-table th{background:var(--card-hi);font-weight:700;}
+  .ev-resp-btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .ev-resp-btn{flex:1;min-width:60px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px 0;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit;}
+  .ev-resp-btn.on{background:var(--turf);color:#0a0d08;border-color:var(--turf);}
+  .ev-date-picker-row{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;}
+  .ev-date-picker-row .ev-date-label{font-weight:700;font-size:13.5px;margin-bottom:8px;}
   .card-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
   .coach{font-size:13.5px;font-weight:700;}
   .date{font-family:monospace;font-size:11px;color:var(--ink-dim);}
@@ -607,7 +624,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0920-1825"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0929-1200"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1573,8 +1590,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   }
   function renderShell(){
     var tabs = isStaff()
-      ? [{ id: "lesson", label: "レッスン" }, { id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }, { id: "roster", label: "会員管理" }]
-      : [{ id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }];
+      ? [{ id: "lesson", label: "レッスン" }, { id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }, { id: "roster", label: "会員管理" }, { id: "event", label: "イベント" }]
+      : [{ id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }, { id: "event", label: "イベント" }];
 
     var navHtml = tabs.map(function(t){
       return '<button class="navitem ' + (tab === t.id ? "active" : "") + '" data-tab="' + t.id + '"><span>' + t.label + '</span></button>';
@@ -1615,6 +1632,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     else if (tab === "lesson") renderLessonTab(screen);
     else if (tab === "chat") renderChat(screen);
     else if (tab === "roster") renderRoster(screen);
+    else if (tab === "event") renderEventTab(screen);
   }
 
   /* ---- PIN変更 ---- */
@@ -2960,6 +2978,506 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     box.onclick = function(e){ if (e.target === box) box.remove(); };
   }
 
+  /* ================= EVENT(ゴルフコンペ・飲み会) ================= */
+  // データはappStateコレクションに "event:<id>" というキーで1イベント=1ドキュメントとして保存する
+  // (生徒データと同じ方式。複数イベントの同時作成・更新が他のイベントを巻き込まないようにするため)。
+  //
+  // event = {
+  //   id, title, type: "competition"|"party", parentEventId(飲み会がコンペに紐づく場合のみ),
+  //   dateMode: "scheduling"(候補日から調整) | "decided"(日程確定済みで登録),
+  //   status: "open"(日程調整中) | "confirmed"(日程確定・出欠収集中) | "done"(終了・アーカイブ),
+  //   candidateDates: ["YYYY-MM-DD", ...](dateMode==="scheduling"の時のみ、最大5件),
+  //   confirmedDate: "YYYY-MM-DD"(status==="confirmed"以降にセット),
+  //   deadline: "YYYY-MM-DD"(回答締切、必須),
+  //   location: string(ゴルフ場名 or 飲食店名・住所),
+  //   invitees: [会員名, ...],
+  //   dateResponses: { 会員名: { "YYYY-MM-DD": "○"|"△"|"×" } },
+  //   attendanceResponses: { 会員名: "○"|"×" },
+  //   createdAt, createdBy
+  // }
+  var EVENT_PREFIX = "event:";
+  function eventDocKey(id){ return EVENT_PREFIX + id; }
+  var EVENT_TYPE_LABEL = { competition: "ゴルフコンペ", party: "飲み会" };
+  var EVENT_STATUS_LABEL = { open: "日程調整中", confirmed: "日程確定", done: "終了" };
+  var EVENT_DATE_RESP_OPTIONS = ["○", "△", "×"];
+  var EVENT_ATTEND_OPTIONS = ["○", "×"];
+
+  function formatDateJp(dateKeyStr, withWeekday){
+    if (!dateKeyStr) return "";
+    var opt = withWeekday === false ? { month: "long", day: "numeric" } : { month: "long", day: "numeric", weekday: "short" };
+    return new Date(dateKeyStr + "T12:00:00").toLocaleDateString("ja-JP", opt);
+  }
+  function formatDateJpShort(dateKeyStr){
+    if (!dateKeyStr) return "";
+    var d = new Date(dateKeyStr + "T12:00:00");
+    return (d.getMonth() + 1) + "/" + d.getDate() + "(" + ["日","月","火","水","木","金","土"][d.getDay()] + ")";
+  }
+
+  // appStateコレクション全体を取得し、"event:"で始まるドキュメントだけをアプリ側で絞り込む
+  // (listAllStudentsと同じ方式)。イベント数は多くないため、生徒一覧と違いキャッシュはせず毎回取りに行く
+  function listAllEvents(cb, onError){
+    withTimeout(authReady, 8000).catch(function(){
+      throw new Error("AUTH_TIMEOUT");
+    }).then(function(){
+      return withRetry(function(){ return withTimeout(getDocs(collection(db, "appState")), 10000); });
+    }).then(function(snap){
+      var list = [];
+      var prefix = sanitizeKey(EVENT_PREFIX);
+      snap.forEach(function(docSnap){
+        if (docSnap.id.indexOf(prefix) !== 0) return;
+        try {
+          var data = docSnap.data();
+          if (data && data.value !== undefined) list.push(JSON.parse(data.value));
+        } catch (e) { /* 壊れたドキュメントはスキップ */ }
+      });
+      list.sort(function(a, b){ return (b.createdAt || 0) - (a.createdAt || 0); });
+      cb(list);
+    }).catch(function(e){
+      console.error("イベント一覧取得失敗", e);
+      if (onError) onError(e); else cb([]);
+    });
+  }
+
+  function eventHasResponded(ev, name){
+    if (ev.status === "open") {
+      var dr = (ev.dateResponses && ev.dateResponses[name]) || null;
+      if (!dr) return false;
+      return (ev.candidateDates || []).every(function(d){ return !!dr[d]; });
+    }
+    if (ev.status === "confirmed") {
+      return !!(ev.attendanceResponses && ev.attendanceResponses[name]);
+    }
+    return true; // done扱いは回答不要
+  }
+
+  function renderEventTab(container){
+    container.innerHTML = '<div class="content"><div class="empty">読み込み中…</div></div>';
+    listAllEvents(function(events){
+      if (isStaff()) {
+        listAllStudents(function(students){
+          drawEventListStaff(container, events, students);
+        }, function(){ drawEventListStaff(container, events, []); });
+      } else {
+        drawEventListMember(container, events, session.name);
+      }
+    }, function(e){
+      container.innerHTML = '<div class="content"><div class="err-box">イベントの読み込みに失敗しました:\n' + esc(e && e.message || e) + '</div></div>';
+    });
+  }
+
+  /* ---- コーチ・管理者向け: 一覧 ---- */
+  function drawEventListStaff(container, events, students){
+    var openList = events.filter(function(e){ return e.status === "open"; });
+    var confirmedList = events.filter(function(e){ return e.status === "confirmed"; });
+    var doneList = events.filter(function(e){ return e.status === "done"; });
+
+    function cardHtml(ev){
+      var respCount = ev.invitees.filter(function(n){ return eventHasResponded(ev, n); }).length;
+      return '<div class="ev-card" data-id="' + esc(ev.id) + '">' +
+        '<span class="ev-type-badge">' + esc(EVENT_TYPE_LABEL[ev.type] || ev.type) + '</span>' +
+        '<span class="ev-status-badge ' + esc(ev.status) + '">' + esc(EVENT_STATUS_LABEL[ev.status] || ev.status) + '</span>' +
+        '<div class="ev-title">' + esc(ev.title) + '</div>' +
+        '<div class="ev-meta">' +
+          (ev.status === "open" ? "候補日 " + (ev.candidateDates || []).map(function(d){ return formatDateJpShort(d); }).join("・") : "開催日 " + formatDateJp(ev.confirmedDate)) + '<br>' +
+          "締切 " + formatDateJp(ev.deadline, false) + ' ／ 回答 ' + respCount + '/' + ev.invitees.length + '名' + '<br>' +
+          "場所 " + esc(ev.location || "未設定") +
+        '</div>' +
+      '</div>';
+    }
+
+    var sectionsHtml =
+      '<div class="section-title" style="margin:18px 0 10px;">調整中・確定済み</div>' +
+      (openList.concat(confirmedList).length === 0 ? '<div class="empty">進行中のイベントはありません。</div>' : openList.concat(confirmedList).map(cardHtml).join("")) +
+      (doneList.length > 0 ? '<div class="section-title" style="margin:22px 0 10px;">終了したイベント</div>' + doneList.map(cardHtml).join("") : "");
+
+    container.innerHTML =
+      '<div class="topbar"><div><div class="eyebrow">Event</div><div class="h1">イベント</div><div class="sub">ゴルフコンペ・飲み会の日程調整と出欠管理</div></div>' +
+        '<button id="add-event-btn" class="add-btn">＋ 作成</button>' +
+      '</div>' +
+      '<div class="content">' + sectionsHtml + '</div>' +
+      eventFormSheetHtml(events, students) +
+      eventDetailSheetHtml();
+
+    document.getElementById("add-event-btn").onclick = function(){ openEventFormSheet(events); toggleSheet("event-form-sheet", true); };
+    wireEventFormSheet(container, events, students);
+
+    container.querySelectorAll(".ev-card").forEach(function(card){
+      card.onclick = function(){
+        var id = card.getAttribute("data-id");
+        var ev = events.filter(function(x){ return x.id === id; })[0];
+        if (ev) openEventDetailSheet(container, ev, students);
+      };
+    });
+  }
+
+  /* ---- イベント作成フォーム ---- */
+  function eventFormSheetHtml(events, students){
+    var confirmedCompetitions = events.filter(function(e){ return e.type === "competition" && e.status !== "done"; });
+    return '<div id="event-form-sheet" class="modal-back hidden"><div class="sheet">' +
+      '<div class="sheet-title">イベントを作成</div>' +
+      '<div class="field"><label>タイトル</label><input id="ev-title" type="text" placeholder="例: 12月度 月例コンペ"></div>' +
+      '<div class="field"><label>種別</label><div class="ev-resp-btn-row">' +
+        '<button type="button" class="ev-resp-btn on" data-type="competition">ゴルフコンペ</button>' +
+        '<button type="button" class="ev-resp-btn" data-type="party">飲み会</button>' +
+      '</div></div>' +
+      '<div class="field" id="ev-parent-field" style="display:none;"><label>コンペに紐づける(任意)</label>' +
+        '<select id="ev-parent-select"><option value="">紐づけない(単独開催)</option>' +
+        confirmedCompetitions.map(function(c){ return '<option value="' + esc(c.id) + '">' + esc(c.title) + (c.confirmedDate ? "(" + formatDateJp(c.confirmedDate, false) + ")" : "") + '</option>'; }).join("") +
+        '</select><div class="hint">紐づけると、コンペで確定した日程がそのまま使われ、日程調整は行いません。</div></div>' +
+      '<div class="field" id="ev-datemode-field"><label>日程</label><div class="ev-resp-btn-row">' +
+        '<button type="button" class="ev-resp-btn on" data-datemode="scheduling">候補日から調整する</button>' +
+        '<button type="button" class="ev-resp-btn" data-datemode="decided">日程は決定済み</button>' +
+      '</div></div>' +
+      '<div class="field" id="ev-candidates-field"><label>候補日(最大5件)</label>' +
+        '<div id="ev-candidate-rows">' +
+          [0,1,2].map(function(i){ return '<input type="date" class="ev-candidate-date" data-idx="' + i + '" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--ink);font-family:inherit;font-size:14.5px;margin-bottom:8px;">'; }).join("") +
+        '</div>' +
+        '<button type="button" id="ev-add-candidate-btn" style="background:none;border:1px dashed var(--line);color:var(--ink-dim);border-radius:10px;padding:8px;width:100%;font-size:13px;">＋ 候補日を追加</button>' +
+      '</div>' +
+      '<div class="field" id="ev-decided-field" style="display:none;"><label>開催日</label><input id="ev-decided-date" type="date"></div>' +
+      '<div class="field"><label>回答締切</label><input id="ev-deadline" type="date"></div>' +
+      '<div class="field"><label>場所(ゴルフ場名、または飲食店名・住所)</label><input id="ev-location" type="text" placeholder="例: ○○ゴルフ倶楽部 / 居酒屋△△(最寄り駅そば)"></div>' +
+      '<div class="field"><label>招待する会員</label>' +
+        '<button type="button" id="ev-invite-all-btn" style="background:none;border:1px solid var(--line);color:var(--turf);border-radius:8px;padding:6px 10px;font-size:12px;margin-bottom:8px;">全員選択/解除</button>' +
+        '<div id="ev-invite-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:8px 12px;">' +
+          students.map(function(s){ return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;"><input type="checkbox" class="ev-invite-check" value="' + esc(s.name) + '" style="width:16px;height:16px;">' + esc(s.name) + '</label>'; }).join("") +
+        '</div>' +
+      '</div>' +
+      '<div id="ev-form-error" class="error-note" style="display:none;"></div>' +
+      '<div class="sheet-actions">' +
+        '<button id="ev-form-cancel" class="btn btn-cancel">キャンセル</button>' +
+        '<button id="ev-form-save" class="btn btn-save">作成する</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+
+  function openEventFormSheet(events){
+    document.getElementById("ev-title").value = "";
+    document.getElementById("ev-location").value = "";
+    document.getElementById("ev-deadline").value = "";
+    document.getElementById("ev-decided-date").value = "";
+    document.getElementById("ev-form-error").style.display = "none";
+    document.querySelectorAll(".ev-candidate-date").forEach(function(inp){ inp.value = ""; });
+    document.querySelectorAll(".ev-invite-check").forEach(function(c){ c.checked = false; });
+    var typeBtns = document.querySelectorAll("#event-form-sheet [data-type]");
+    typeBtns.forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-type") === "competition"); });
+    document.getElementById("ev-parent-field").style.display = "none";
+    document.getElementById("ev-parent-select").value = "";
+    var dmBtns = document.querySelectorAll("#event-form-sheet [data-datemode]");
+    dmBtns.forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-datemode") === "scheduling"); });
+    document.getElementById("ev-datemode-field").style.display = "";
+    document.getElementById("ev-candidates-field").style.display = "";
+    document.getElementById("ev-decided-field").style.display = "none";
+  }
+
+  function wireEventFormSheet(container, events, students){
+    var sheet = document.getElementById("event-form-sheet");
+    if (!sheet) return;
+    var selectedType = "competition";
+    var selectedDateMode = "scheduling";
+
+    sheet.querySelectorAll("[data-type]").forEach(function(btn){
+      btn.onclick = function(){
+        selectedType = btn.getAttribute("data-type");
+        sheet.querySelectorAll("[data-type]").forEach(function(b){ b.classList.toggle("on", b === btn); });
+        document.getElementById("ev-parent-field").style.display = selectedType === "party" ? "" : "none";
+        applyParentLinkState();
+      };
+    });
+
+    function applyParentLinkState(){
+      var parentId = document.getElementById("ev-parent-select").value;
+      var linked = selectedType === "party" && !!parentId;
+      // コンペに紐づけた飲み会は、コンペで確定した日程をそのまま使うため、日程調整UIは隠す
+      document.getElementById("ev-datemode-field").style.display = linked ? "none" : "";
+      document.getElementById("ev-candidates-field").style.display = (!linked && selectedDateMode === "scheduling") ? "" : "none";
+      document.getElementById("ev-decided-field").style.display = (!linked && selectedDateMode === "decided") ? "" : "none";
+      if (linked) {
+        var parent = events.filter(function(e){ return e.id === parentId; })[0];
+        if (parent) document.getElementById("ev-decided-date").value = parent.confirmedDate || "";
+      }
+    }
+    var parentSelect = document.getElementById("ev-parent-select");
+    if (parentSelect) parentSelect.onchange = applyParentLinkState;
+
+    sheet.querySelectorAll("[data-datemode]").forEach(function(btn){
+      btn.onclick = function(){
+        selectedDateMode = btn.getAttribute("data-datemode");
+        sheet.querySelectorAll("[data-datemode]").forEach(function(b){ b.classList.toggle("on", b === btn); });
+        applyParentLinkState();
+      };
+    });
+
+    var addCandidateBtn = document.getElementById("ev-add-candidate-btn");
+    addCandidateBtn.onclick = function(){
+      var rows = document.getElementById("ev-candidate-rows");
+      var count = rows.querySelectorAll(".ev-candidate-date").length;
+      if (count >= 5) { alert("候補日は最大5件までです。"); return; }
+      var inp = document.createElement("input");
+      inp.type = "date";
+      inp.className = "ev-candidate-date";
+      inp.setAttribute("data-idx", String(count));
+      inp.style.cssText = "width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--ink);font-family:inherit;font-size:14.5px;margin-bottom:8px;";
+      rows.appendChild(inp);
+    };
+
+    var inviteAllBtn = document.getElementById("ev-invite-all-btn");
+    inviteAllBtn.onclick = function(){
+      var checks = document.querySelectorAll(".ev-invite-check");
+      var allOn = Array.prototype.every.call(checks, function(c){ return c.checked; });
+      checks.forEach(function(c){ c.checked = !allOn; });
+    };
+
+    document.getElementById("ev-form-cancel").onclick = function(){ toggleSheet("event-form-sheet", false); };
+
+    document.getElementById("ev-form-save").onclick = function(){
+      var errBox = document.getElementById("ev-form-error");
+      errBox.style.display = "none";
+      var title = document.getElementById("ev-title").value.trim();
+      var deadline = document.getElementById("ev-deadline").value;
+      var location = document.getElementById("ev-location").value.trim();
+      var invitees = Array.prototype.map.call(document.querySelectorAll(".ev-invite-check:checked"), function(c){ return c.value; });
+      var parentId = selectedType === "party" ? document.getElementById("ev-parent-select").value : "";
+      var linked = !!parentId;
+
+      if (!title) { errBox.textContent = "タイトルを入力してください。"; errBox.style.display = "block"; return; }
+      if (!deadline) { errBox.textContent = "回答締切を入力してください。"; errBox.style.display = "block"; return; }
+      if (!location) { errBox.textContent = "場所を入力してください。"; errBox.style.display = "block"; return; }
+      if (invitees.length === 0) { errBox.textContent = "招待する会員を1人以上選んでください。"; errBox.style.display = "block"; return; }
+
+      var dateMode, candidateDates = [], confirmedDate = "", status;
+      if (linked) {
+        var parent = events.filter(function(e){ return e.id === parentId; })[0];
+        dateMode = "decided";
+        confirmedDate = (parent && parent.confirmedDate) || document.getElementById("ev-decided-date").value;
+        status = "confirmed";
+        if (!confirmedDate) { errBox.textContent = "紐づけ先のコンペの日程が確定していません。"; errBox.style.display = "block"; return; }
+      } else if (selectedDateMode === "decided") {
+        dateMode = "decided";
+        confirmedDate = document.getElementById("ev-decided-date").value;
+        status = "confirmed";
+        if (!confirmedDate) { errBox.textContent = "開催日を入力してください。"; errBox.style.display = "block"; return; }
+      } else {
+        dateMode = "scheduling";
+        candidateDates = Array.prototype.map.call(document.querySelectorAll(".ev-candidate-date"), function(i){ return i.value; }).filter(function(v){ return !!v; });
+        candidateDates = candidateDates.filter(function(v, i){ return candidateDates.indexOf(v) === i; }); // 重複除去
+        status = "open";
+        if (candidateDates.length === 0) { errBox.textContent = "候補日を1件以上入力してください。"; errBox.style.display = "block"; return; }
+      }
+
+      var id = "ev-" + Date.now();
+      var newEvent = {
+        id: id, title: title, type: selectedType, parentEventId: linked ? parentId : null,
+        dateMode: dateMode, status: status, candidateDates: candidateDates, confirmedDate: confirmedDate,
+        deadline: deadline, location: location, invitees: invitees,
+        dateResponses: {}, attendanceResponses: {},
+        createdAt: Date.now(), createdBy: session.name
+      };
+      setJSON(eventDocKey(id), newEvent);
+      toggleSheet("event-form-sheet", false);
+      renderEventTab(container);
+    };
+  }
+
+  /* ---- コーチ・管理者向け: 詳細(タリー表示・確定操作) ---- */
+  function eventDetailSheetHtml(){
+    return '<div id="event-detail-sheet" class="modal-back hidden"><div class="sheet">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+        '<div class="sheet-title" id="event-detail-title" style="margin-bottom:0;"></div>' +
+        '<button type="button" id="event-detail-close" style="background:none;border:none;color:var(--ink-dim);font-size:22px;line-height:1;padding:4px 6px;">✕</button>' +
+      '</div>' +
+      '<div id="event-detail-body"></div>' +
+    '</div></div>';
+  }
+
+  function openEventDetailSheet(container, ev, students){
+    document.getElementById("event-detail-title").textContent = ev.title;
+    var body = document.getElementById("event-detail-body");
+
+    function saveAndRerender(updated){
+      setJSON(eventDocKey(updated.id), updated);
+      toggleSheet("event-detail-sheet", false);
+      renderEventTab(container);
+    }
+
+    var html = '<div class="ev-meta" style="margin-bottom:12px;">' +
+      '<span class="ev-type-badge">' + esc(EVENT_TYPE_LABEL[ev.type] || ev.type) + '</span>' +
+      '<span class="ev-status-badge ' + esc(ev.status) + '">' + esc(EVENT_STATUS_LABEL[ev.status] || ev.status) + '</span><br>' +
+      "締切: " + formatDateJp(ev.deadline, false) + '<br>' +
+      "場所: " + esc(ev.location || "未設定") +
+    '</div>';
+
+    if (ev.status === "open") {
+      var dates = ev.candidateDates || [];
+      html += '<table class="ev-tally-table"><thead><tr><th>会員</th>' + dates.map(function(d){ return '<th>' + esc(formatDateJpShort(d)) + '</th>'; }).join("") + '</tr></thead><tbody>' +
+        ev.invitees.map(function(n){
+          var dr = (ev.dateResponses && ev.dateResponses[n]) || {};
+          return '<tr><td style="text-align:left;">' + esc(n) + '</td>' + dates.map(function(d){ return '<td>' + esc(dr[d] || "-") + '</td>'; }).join("") + '</tr>';
+        }).join("") +
+      '<tr><td style="text-align:left;font-weight:700;">○の数</td>' + dates.map(function(d){
+        var count = ev.invitees.filter(function(n){ return ((ev.dateResponses && ev.dateResponses[n]) || {})[d] === "○"; }).length;
+        return '<td style="font-weight:700;">' + count + '</td>';
+      }).join("") + '</tr>' +
+      '</tbody></table>' +
+      '<div class="hint" style="margin-top:10px;">日程を確定すると、出欠確認のフェーズに進みます。</div>' +
+      '<div style="margin-top:10px;">' + dates.map(function(d){
+        return '<button type="button" class="btn btn-save ev-confirm-date-btn" data-date="' + esc(d) + '" style="margin-bottom:8px;">' + esc(formatDateJp(d)) + ' に決定する</button>';
+      }).join("") + '</div>';
+    } else {
+      html += "開催日: " + formatDateJp(ev.confirmedDate) + '<br><br>';
+      html += '<table class="ev-tally-table"><thead><tr><th>会員</th><th>出欠</th></tr></thead><tbody>' +
+        ev.invitees.map(function(n){
+          var a = (ev.attendanceResponses && ev.attendanceResponses[n]) || "未回答";
+          return '<tr><td style="text-align:left;">' + esc(n) + '</td><td>' + esc(a) + '</td></tr>';
+        }).join("") +
+      '</tbody></table>';
+      var yes = ev.invitees.filter(function(n){ return (ev.attendanceResponses || {})[n] === "○"; }).length;
+      var no = ev.invitees.filter(function(n){ return (ev.attendanceResponses || {})[n] === "×"; }).length;
+      var pending = ev.invitees.length - yes - no;
+      html += '<div class="ev-meta" style="margin-top:10px;">参加 ' + yes + '名 ／ 不参加 ' + no + '名 ／ 未回答 ' + pending + '名</div>';
+      if (ev.status === "confirmed") {
+        html += '<button type="button" id="ev-archive-btn" class="btn btn-save" style="margin-top:14px;">このイベントを終了にする</button>';
+      }
+    }
+    html += '<button type="button" id="ev-delete-btn" class="pin-reset-btn" style="width:100%;margin-top:14px;">このイベントを削除</button>';
+
+    body.innerHTML = html;
+    document.getElementById("event-detail-close").onclick = function(){ toggleSheet("event-detail-sheet", false); };
+
+    body.querySelectorAll(".ev-confirm-date-btn").forEach(function(btn){
+      btn.onclick = function(){
+        var d = btn.getAttribute("data-date");
+        if (!confirm(formatDateJp(d) + " に日程を確定しますか?出欠確認のフェーズに進みます。")) return;
+        var updated = Object.assign({}, ev, { status: "confirmed", confirmedDate: d });
+        saveAndRerender(updated);
+      };
+    });
+    var archiveBtn = document.getElementById("ev-archive-btn");
+    if (archiveBtn) archiveBtn.onclick = function(){
+      var updated = Object.assign({}, ev, { status: "done" });
+      saveAndRerender(updated);
+    };
+    document.getElementById("ev-delete-btn").onclick = function(){
+      if (!confirm("このイベントを削除しますか?この操作は取り消せません。")) return;
+      deleteJSONKey(eventDocKey(ev.id), function(){
+        toggleSheet("event-detail-sheet", false);
+        renderEventTab(container);
+      });
+    };
+
+    toggleSheet("event-detail-sheet", true);
+  }
+
+  /* ---- 会員向け: 一覧・回答 ---- */
+  function drawEventListMember(container, events, studentName){
+    var mine = events.filter(function(e){ return e.invitees.indexOf(studentName) !== -1; });
+    var pending = mine.filter(function(e){ return e.status !== "done" && !eventHasResponded(e, studentName); });
+    var others = mine.filter(function(e){ return pending.indexOf(e) === -1; });
+
+    function cardHtml(ev, isPending){
+      var whatToShow = ev.status === "open"
+        ? "候補日 " + (ev.candidateDates || []).map(function(d){ return formatDateJpShort(d); }).join("・")
+        : "開催日 " + formatDateJp(ev.confirmedDate);
+      return '<div class="ev-card' + (isPending ? " pending" : "") + '" data-id="' + esc(ev.id) + '">' +
+        '<span class="ev-type-badge">' + esc(EVENT_TYPE_LABEL[ev.type] || ev.type) + '</span>' +
+        (isPending ? '<span class="ev-status-badge open">回答してください</span>' : '<span class="ev-status-badge ' + esc(ev.status) + '">' + esc(ev.status === "done" ? "終了" : "回答済み") + '</span>') +
+        '<div class="ev-title">' + esc(ev.title) + '</div>' +
+        '<div class="ev-meta">' + whatToShow + '<br>締切 ' + formatDateJp(ev.deadline, false) + ' ／ 場所 ' + esc(ev.location || "未設定") + '</div>' +
+      '</div>';
+    }
+
+    var html = '';
+    if (pending.length > 0) html += '<div class="section-title" style="margin:14px 0 10px;color:var(--turf);">回答してください</div>' + pending.map(function(e){ return cardHtml(e, true); }).join("");
+    html += '<div class="section-title" style="margin:20px 0 10px;">その他のイベント</div>' + (others.length === 0 ? '<div class="empty">ありません。</div>' : others.map(function(e){ return cardHtml(e, false); }).join(""));
+    if (mine.length === 0) html = '<div class="empty">現在参加予定のイベントはありません。</div>';
+
+    container.innerHTML =
+      '<div class="topbar"><div><div class="eyebrow">Event</div><div class="h1">イベント</div><div class="sub">ゴルフコンペ・飲み会の日程・出欠</div></div></div>' +
+      '<div class="content">' + html + '</div>' +
+      eventResponseSheetHtml();
+
+    container.querySelectorAll(".ev-card").forEach(function(card){
+      card.onclick = function(){
+        var id = card.getAttribute("data-id");
+        var ev = mine.filter(function(x){ return x.id === id; })[0];
+        if (ev) openEventResponseSheet(container, ev, studentName);
+      };
+    });
+  }
+
+  function eventResponseSheetHtml(){
+    return '<div id="event-response-sheet" class="modal-back hidden"><div class="sheet">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+        '<div class="sheet-title" id="event-response-title" style="margin-bottom:0;"></div>' +
+        '<button type="button" id="event-response-close" style="background:none;border:none;color:var(--ink-dim);font-size:22px;line-height:1;padding:4px 6px;">✕</button>' +
+      '</div>' +
+      '<div id="event-response-body"></div>' +
+    '</div></div>';
+  }
+
+  function openEventResponseSheet(container, ev, studentName){
+    document.getElementById("event-response-title").textContent = ev.title;
+    var body = document.getElementById("event-response-body");
+    var meta = '<div class="ev-meta" style="margin-bottom:14px;">場所: ' + esc(ev.location || "未設定") + '<br>締切: ' + formatDateJp(ev.deadline, false) + '</div>';
+
+    if (ev.status === "open") {
+      var dates = ev.candidateDates || [];
+      var existing = (ev.dateResponses && ev.dateResponses[studentName]) || {};
+      var current = Object.assign({}, existing);
+      body.innerHTML = meta + '<div class="hint" style="margin-bottom:12px;">各候補日について、参加できるかを選んでください。</div>' +
+        dates.map(function(d){
+          return '<div class="ev-date-picker-row"><div class="ev-date-label">' + esc(formatDateJp(d)) + '</div>' +
+            '<div class="ev-resp-btn-row" data-date="' + esc(d) + '">' +
+            EVENT_DATE_RESP_OPTIONS.map(function(opt){ return '<button type="button" class="ev-resp-btn' + (current[d] === opt ? " on" : "") + '" data-val="' + esc(opt) + '">' + esc(opt) + '</button>'; }).join("") +
+            '</div></div>';
+        }).join("") +
+        '<button type="button" id="ev-resp-save" class="btn btn-save" style="margin-top:10px;">回答する</button>';
+
+      body.querySelectorAll(".ev-resp-btn-row").forEach(function(row){
+        var d = row.getAttribute("data-date");
+        row.querySelectorAll(".ev-resp-btn").forEach(function(btn){
+          btn.onclick = function(){
+            current[d] = btn.getAttribute("data-val");
+            row.querySelectorAll(".ev-resp-btn").forEach(function(b){ b.classList.toggle("on", b === btn); });
+          };
+        });
+      });
+      document.getElementById("ev-resp-save").onclick = function(){
+        if (dates.some(function(d){ return !current[d]; })) { alert("すべての候補日について回答してください。"); return; }
+        var updated = Object.assign({}, ev, { dateResponses: Object.assign({}, ev.dateResponses) });
+        updated.dateResponses[studentName] = current;
+        setJSON(eventDocKey(ev.id), updated);
+        toggleSheet("event-response-sheet", false);
+        renderEventTab(container);
+      };
+    } else {
+      var currentAttend = (ev.attendanceResponses && ev.attendanceResponses[studentName]) || null;
+      body.innerHTML = meta + '<div class="hint" style="margin-bottom:12px;">開催日: ' + esc(formatDateJp(ev.confirmedDate)) + '<br>出欠をお知らせください。</div>' +
+        '<div class="ev-resp-btn-row" id="ev-attend-row">' +
+        EVENT_ATTEND_OPTIONS.map(function(opt){ return '<button type="button" class="ev-resp-btn' + (currentAttend === opt ? " on" : "") + '" data-val="' + esc(opt) + '">' + (opt === "○" ? "○ 参加する" : "× 参加しない") + '</button>'; }).join("") +
+        '</div>' +
+        '<button type="button" id="ev-resp-save" class="btn btn-save" style="margin-top:10px;">回答する</button>';
+
+      var selected = currentAttend;
+      body.querySelectorAll("#ev-attend-row .ev-resp-btn").forEach(function(btn){
+        btn.onclick = function(){
+          selected = btn.getAttribute("data-val");
+          body.querySelectorAll("#ev-attend-row .ev-resp-btn").forEach(function(b){ b.classList.toggle("on", b === btn); });
+        };
+      });
+      document.getElementById("ev-resp-save").onclick = function(){
+        if (!selected) { alert("出欠を選択してください。"); return; }
+        var updated = Object.assign({}, ev, { attendanceResponses: Object.assign({}, ev.attendanceResponses) });
+        updated.attendanceResponses[studentName] = selected;
+        setJSON(eventDocKey(ev.id), updated);
+        toggleSheet("event-response-sheet", false);
+        renderEventTab(container);
+      };
+    }
+    document.getElementById("event-response-close").onclick = function(){ toggleSheet("event-response-sheet", false); };
+    toggleSheet("event-response-sheet", true);
+  }
+
   /* ================= CHAT ================= */
   function renderChat(container){
     container.innerHTML = '<div class="content"><div class="empty">読み込み中…</div></div>';
@@ -3871,11 +4389,18 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     tab = "chat";
     if (isStaff() && studentName) setCoachSelectedStudent(studentName);
   }
+  function applyOpenEventFromNotification(){
+    if (!session) return;
+    tab = "event";
+  }
   (function(){
     var params = new URLSearchParams(location.search);
     if (params.get("tab") === "chat") {
       applyOpenChatFromNotification(params.get("openChat") || "");
       // 一度処理したらURLから消しておく(再読み込みのたびに毎回チャットへ飛ばされないように)
+      history.replaceState(null, "", location.pathname);
+    } else if (params.get("tab") === "event") {
+      applyOpenEventFromNotification();
       history.replaceState(null, "", location.pathname);
     }
   })();
@@ -3911,6 +4436,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     navigator.serviceWorker.addEventListener("message", function(event){
       if (event.data && event.data.type === "openChat") {
         applyOpenChatFromNotification(event.data.studentName || "");
+        render();
+      } else if (event.data && event.data.type === "openEvent") {
+        applyOpenEventFromNotification();
         render();
       }
     });
