@@ -624,7 +624,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0930-0850"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0930-0915"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -3354,7 +3354,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         return '<td style="font-weight:700;">' + count + '</td>';
       }).join("") + '</tr>' +
       '</tbody></table>' +
-      '<div class="hint" style="margin-top:10px;">日程を確定すると、出欠確認のフェーズに進みます。</div>' +
+      '<div class="hint" style="margin-top:10px;">日程を確定すると、その日に「〇」と回答していた人はそのまま参加確定になります。「△」や未回答の人だけ、改めて出欠の確認が必要です。</div>' +
       '<div style="margin-top:10px;">' + dates.map(function(d){
         return '<button type="button" class="btn btn-save ev-confirm-date-btn" data-date="' + esc(d) + '" style="margin-bottom:8px;">' + esc(formatDateJp(d)) + ' に決定する</button>';
       }).join("") + '</div>';
@@ -3383,7 +3383,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     body.querySelectorAll(".ev-confirm-date-btn").forEach(function(btn){
       btn.onclick = function(){
         var d = btn.getAttribute("data-date");
-        if (!confirm(formatDateJp(d) + " に日程を確定しますか?出欠確認のフェーズに進みます。")) return;
+        if (!confirm(formatDateJp(d) + " に日程を確定しますか?\n「〇」と回答していた人はそのまま参加確定になります。「△」・未回答の人だけ、改めて出欠の確認が必要です。")) return;
         // 日程調整の時点で「〇(参加できる)」「×(参加できない)」と答えていた人は、その回答をそのまま
         // 出欠として引き継ぎ、改めて聞き直さない。「△(未定)」や未回答の人だけ、出欠確認フェーズで
         // 引き続き「未回答」として残す(コーチがチャットで個別に確認する運用を想定)
@@ -3497,11 +3497,17 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       };
     } else {
       var currentAttend = (ev.attendanceResponses && ev.attendanceResponses[studentName]) || null;
-      body.innerHTML = meta + '<div class="hint" style="margin-bottom:12px;">開催日: ' + esc(formatDateJp(ev.confirmedDate)) + '<br>出欠をお知らせください。</div>' +
+      // 日程調整の時点で「〇」「×」と回答済みの人は、その回答がそのまま出欠として引き継がれているので、
+      // ここでは「回答してください」ではなく「確定しています(変更も可能)」という案内にする
+      var alreadyDecided = !!currentAttend;
+      var statusLine = alreadyDecided
+        ? (currentAttend === "○" ? "参加が確定しています。" : "不参加として登録されています。") + "(内容を変更する場合は選び直してください)"
+        : "出欠をお知らせください。";
+      body.innerHTML = meta + '<div class="hint" style="margin-bottom:12px;">開催日: ' + esc(formatDateJp(ev.confirmedDate)) + '<br>' + statusLine + '</div>' +
         '<div class="ev-resp-btn-row" id="ev-attend-row">' +
         EVENT_ATTEND_OPTIONS.map(function(opt){ return '<button type="button" class="ev-resp-btn' + (currentAttend === opt ? " on" : "") + '" data-val="' + esc(opt) + '">' + (opt === "○" ? "○ 参加する" : "× 参加しない") + '</button>'; }).join("") +
         '</div>' +
-        '<button type="button" id="ev-resp-save" class="btn btn-save" style="margin-top:10px;">回答する</button>';
+        '<button type="button" id="ev-resp-save" class="btn btn-save" style="margin-top:10px;">' + (alreadyDecided ? "変更する" : "回答する") + '</button>';
 
       var selected = currentAttend;
       body.querySelectorAll("#ev-attend-row .ev-resp-btn").forEach(function(btn){
