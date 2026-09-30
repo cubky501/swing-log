@@ -624,7 +624,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0930-0915"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0930-1030"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2990,9 +2990,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   //   confirmedDate: "YYYY-MM-DD"(status==="confirmed"以降にセット),
   //   deadline: "YYYY-MM-DD"(回答締切、必須),
   //   location: string(ゴルフ場名 or 飲食店名・住所),
+  //   startTime: "HH:MM"(スタート時間、任意), fee: string(プレー代・会費など概算、任意),
   //   invitees: [会員名, ...],
   //   dateResponses: { 会員名: { "YYYY-MM-DD": "○"|"△"|"×" } },
   //   attendanceResponses: { 会員名: "○"|"×" },
+  //   comments: { 会員名: string }(回答時の自由コメント、任意),
   //   createdAt, createdBy
   // }
   var EVENT_PREFIX = "event:";
@@ -3081,6 +3083,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           (ev.status === "open" ? "候補日 " + (ev.candidateDates || []).map(function(d){ return formatDateJpShort(d); }).join("・") : "開催日 " + formatDateJp(ev.confirmedDate)) + '<br>' +
           "締切 " + formatDateJp(ev.deadline, false) + ' ／ 回答 ' + respCount + '/' + ev.invitees.length + '名' + '<br>' +
           "場所 " + esc(ev.location || "未設定") +
+          (ev.startTime ? " ／ " + esc(ev.startTime) + "〜" : "") + (ev.fee ? " ／ " + esc(ev.fee) : "") +
         '</div>' +
       '</div>';
     }
@@ -3105,7 +3108,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       card.onclick = function(){
         var id = card.getAttribute("data-id");
         var ev = events.filter(function(x){ return x.id === id; })[0];
-        if (ev) openEventDetailSheet(container, ev, students);
+        if (ev) openEventDetailSheet(container, ev, students, events);
       };
     });
   }
@@ -3116,8 +3119,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     var sortedStudents = sortStudentsByKana(students);
     var todayStr = todayKey();
     return '<div id="event-form-sheet" class="modal-back hidden"><div class="sheet">' +
-      '<div class="sheet-title">イベントを作成</div>' +
-      '<div class="field"><label>タイトル</label><input id="ev-title" type="text" placeholder="例: 12月度 月例コンペ"></div>' +
+      '<div class="sheet-title" id="event-form-title">イベントを作成</div>' +
+      '<div class="field"><label>タイトル</label><input id="ev-title" type="text" placeholder="例: 12月度 ラウンド / 忘年会">' +
+        '<div class="hint">「ゴルフ」「懇親会」など、何の日程調整か分かるタイトルがおすすめです。</div>' +
+      '</div>' +
       '<div class="field"><label>種別</label><div class="ev-resp-btn-row">' +
         '<button type="button" class="ev-resp-btn on" data-type="golf">ゴルフ</button>' +
         '<button type="button" class="ev-resp-btn" data-type="party">飲み会</button>' +
@@ -3140,6 +3145,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '<div class="field" id="ev-decided-field" style="display:none;"><label>開催日</label><input id="ev-decided-date" type="date" min="' + todayStr + '"></div>' +
       '<div class="field"><label>回答締切</label><input id="ev-deadline" type="date" min="' + todayStr + '"></div>' +
       '<div class="field"><label>場所(ゴルフ場名、または飲食店名・住所)</label><input id="ev-location" type="text" placeholder="例: ○○ゴルフ倶楽部 / 居酒屋△△(最寄り駅そば)"></div>' +
+      '<div class="field" style="display:flex;gap:10px;">' +
+        '<div style="flex:1;"><label>スタート時間(任意)</label><input id="ev-starttime" type="time"></div>' +
+        '<div style="flex:1;"><label>費用(概算・任意)</label><input id="ev-fee" type="text" placeholder="例: プレー代1.2万円 / 会費5千円"></div>' +
+      '</div>' +
       '<div class="field"><label>招待する会員</label>' +
         '<input id="ev-invite-search" type="text" placeholder="名前で絞り込み" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;color:var(--ink);font-family:inherit;font-size:13.5px;margin-bottom:8px;">' +
         '<button type="button" id="ev-invite-all-btn" style="background:none;border:1px solid var(--line);color:var(--turf);border-radius:8px;padding:6px 10px;font-size:12px;margin-bottom:8px;">全員選択/解除</button>' +
@@ -3155,50 +3164,86 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     '</div></div>';
   }
 
-  function openEventFormSheet(events){
-    document.getElementById("ev-title").value = "";
-    document.getElementById("ev-location").value = "";
-    document.getElementById("ev-deadline").value = "";
-    document.getElementById("ev-decided-date").value = "";
+  var editingEventId = null; // null=新規作成、それ以外はそのIDのイベントを編集中
+  function openEventFormSheet(events, editEvent){
+    editingEventId = editEvent ? editEvent.id : null;
+    document.getElementById("event-form-title").textContent = editEvent ? "イベントを編集" : "イベントを作成";
+    document.getElementById("ev-title").value = editEvent ? editEvent.title : "";
+    document.getElementById("ev-location").value = editEvent ? (editEvent.location || "") : "";
+    document.getElementById("ev-starttime").value = editEvent ? (editEvent.startTime || "") : "";
+    document.getElementById("ev-fee").value = editEvent ? (editEvent.fee || "") : "";
+    document.getElementById("ev-deadline").value = editEvent ? (editEvent.deadline || "") : "";
+    document.getElementById("ev-decided-date").value = (editEvent && editEvent.dateMode === "decided") ? editEvent.confirmedDate : "";
     document.getElementById("ev-form-error").style.display = "none";
     document.getElementById("ev-invite-search").value = "";
-    document.querySelectorAll(".ev-candidate-date").forEach(function(inp){ inp.value = ""; });
-    // 55名もいて1人ずつ選ぶのは手間なので、デフォルトは全員招待にしておき、除外したい人だけ外してもらう運用にする
-    document.querySelectorAll(".ev-invite-check").forEach(function(c){ c.checked = true; });
+
+    // 候補日の入力欄: 編集時は既存の候補日を反映した件数だけ用意する(最低3件)
+    var rows = document.getElementById("ev-candidate-rows");
+    rows.innerHTML = "";
+    var existingDates = (editEvent && editEvent.dateMode === "scheduling") ? (editEvent.candidateDates || []) : [];
+    var rowCount = Math.max(3, existingDates.length);
+    for (var i = 0; i < rowCount; i++) {
+      var inp = document.createElement("input");
+      inp.type = "date";
+      inp.className = "ev-candidate-date";
+      inp.setAttribute("data-idx", String(i));
+      inp.min = todayKey();
+      inp.value = existingDates[i] || "";
+      inp.style.cssText = "width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--ink);font-family:inherit;font-size:14.5px;margin-bottom:8px;";
+      rows.appendChild(inp);
+    }
+
+    var inviteeSet = editEvent ? editEvent.invitees : null;
+    // 55名もいて1人ずつ選ぶのは手間なので、新規作成時のデフォルトは全員招待にしておき、
+    // 除外したい人だけ外してもらう運用にする。編集時は保存済みの招待メンバーをそのまま反映する
+    document.querySelectorAll(".ev-invite-check").forEach(function(c){ c.checked = inviteeSet ? inviteeSet.indexOf(c.value) !== -1 : true; });
     document.querySelectorAll(".ev-invite-row").forEach(function(r){ r.style.display = ""; });
-    var typeBtns = document.querySelectorAll("#event-form-sheet [data-type]");
-    typeBtns.forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-type") === "golf"); });
-    document.getElementById("ev-parent-field").style.display = "none";
-    document.getElementById("ev-parent-select").value = "";
-    var dmBtns = document.querySelectorAll("#event-form-sheet [data-datemode]");
-    dmBtns.forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-datemode") === "scheduling"); });
-    document.getElementById("ev-datemode-field").style.display = "";
-    document.getElementById("ev-candidates-field").style.display = "";
-    document.getElementById("ev-decided-field").style.display = "none";
+
+    var typeToSelect = editEvent ? editEvent.type : "golf";
+    document.querySelectorAll("#event-form-sheet [data-type]").forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-type") === typeToSelect); });
+    document.getElementById("ev-parent-field").style.display = typeToSelect === "party" ? "" : "none";
+    document.getElementById("ev-parent-select").value = (editEvent && editEvent.parentEventId) ? editEvent.parentEventId : "";
+
+    var dateModeToSelect = editEvent ? editEvent.dateMode : "scheduling";
+    document.querySelectorAll("#event-form-sheet [data-datemode]").forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-datemode") === dateModeToSelect); });
+
+    var linked = typeToSelect === "party" && !!(editEvent && editEvent.parentEventId);
+    document.getElementById("ev-datemode-field").style.display = linked ? "none" : "";
+    document.getElementById("ev-candidates-field").style.display = (!linked && dateModeToSelect === "scheduling") ? "" : "none";
+    document.getElementById("ev-decided-field").style.display = (!linked && dateModeToSelect === "decided") ? "" : "none";
+
+    document.getElementById("ev-form-save").textContent = editEvent ? "更新する" : "作成する";
   }
 
   function wireEventFormSheet(container, events, students){
     var sheet = document.getElementById("event-form-sheet");
     if (!sheet) return;
-    var selectedType = "golf";
-    var selectedDateMode = "scheduling";
+    // 編集時にopenEventFormSheet側でボタンの見た目(on/off)だけをDOM操作で変えても値がずれないよう、
+    // 選択状態は変数で持たずDOMの.onクラスから毎回読み取る
+    function getSelectedType(){
+      var btn = sheet.querySelector("[data-type].on");
+      return btn ? btn.getAttribute("data-type") : "golf";
+    }
+    function getSelectedDateMode(){
+      var btn = sheet.querySelector("[data-datemode].on");
+      return btn ? btn.getAttribute("data-datemode") : "scheduling";
+    }
 
     sheet.querySelectorAll("[data-type]").forEach(function(btn){
       btn.onclick = function(){
-        selectedType = btn.getAttribute("data-type");
         sheet.querySelectorAll("[data-type]").forEach(function(b){ b.classList.toggle("on", b === btn); });
-        document.getElementById("ev-parent-field").style.display = selectedType === "party" ? "" : "none";
+        document.getElementById("ev-parent-field").style.display = getSelectedType() === "party" ? "" : "none";
         applyParentLinkState();
       };
     });
 
     function applyParentLinkState(){
       var parentId = document.getElementById("ev-parent-select").value;
-      var linked = selectedType === "party" && !!parentId;
+      var linked = getSelectedType() === "party" && !!parentId;
       // コンペに紐づけた飲み会は、コンペで確定した日程をそのまま使うため、日程調整UIは隠す
       document.getElementById("ev-datemode-field").style.display = linked ? "none" : "";
-      document.getElementById("ev-candidates-field").style.display = (!linked && selectedDateMode === "scheduling") ? "" : "none";
-      document.getElementById("ev-decided-field").style.display = (!linked && selectedDateMode === "decided") ? "" : "none";
+      document.getElementById("ev-candidates-field").style.display = (!linked && getSelectedDateMode() === "scheduling") ? "" : "none";
+      document.getElementById("ev-decided-field").style.display = (!linked && getSelectedDateMode() === "decided") ? "" : "none";
       if (linked) {
         var parent = events.filter(function(e){ return e.id === parentId; })[0];
         if (parent) document.getElementById("ev-decided-date").value = parent.confirmedDate || "";
@@ -3209,7 +3254,6 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
     sheet.querySelectorAll("[data-datemode]").forEach(function(btn){
       btn.onclick = function(){
-        selectedDateMode = btn.getAttribute("data-datemode");
         sheet.querySelectorAll("[data-datemode]").forEach(function(b){ b.classList.toggle("on", b === btn); });
         applyParentLinkState();
       };
@@ -3254,9 +3298,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     document.getElementById("ev-form-save").onclick = function(){
       var errBox = document.getElementById("ev-form-error");
       errBox.style.display = "none";
+      var selectedType = getSelectedType();
+      var selectedDateMode = getSelectedDateMode();
       var title = document.getElementById("ev-title").value.trim();
       var deadline = document.getElementById("ev-deadline").value;
       var location = document.getElementById("ev-location").value.trim();
+      var startTime = document.getElementById("ev-starttime").value;
+      var fee = document.getElementById("ev-fee").value.trim();
       var invitees = Array.prototype.map.call(document.querySelectorAll(".ev-invite-check:checked"), function(c){ return c.value; });
       var parentId = selectedType === "party" ? document.getElementById("ev-parent-select").value : "";
       var linked = !!parentId;
@@ -3300,15 +3348,29 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         return;
       }
 
-      var id = "ev-" + Date.now();
-      var newEvent = {
-        id: id, title: title, type: selectedType, parentEventId: linked ? parentId : null,
-        dateMode: dateMode, status: status, candidateDates: candidateDates, confirmedDate: confirmedDate,
-        deadline: deadline, location: location, invitees: invitees,
-        dateResponses: {}, attendanceResponses: {},
-        createdAt: Date.now(), createdBy: session.name
-      };
-      setJSON(eventDocKey(id), newEvent);
+      if (editingEventId) {
+        // 編集時: 既存の回答(dateResponses/attendanceResponses/comments)や作成情報はそのまま引き継ぐ。
+        // 日程を大きく変えた場合(候補日を入れ替えた等)は、既存の回答が古い日付を指したままになるが、
+        // タリー表示は候補日一覧をもとに描画されるため実害はなく、コーチが見て判断できる
+        var original = events.filter(function(e){ return e.id === editingEventId; })[0] || {};
+        var updatedEvent = Object.assign({}, original, {
+          title: title, type: selectedType, parentEventId: linked ? parentId : null,
+          dateMode: dateMode, status: status, candidateDates: candidateDates, confirmedDate: confirmedDate,
+          deadline: deadline, location: location, startTime: startTime, fee: fee, invitees: invitees
+        });
+        setJSON(eventDocKey(editingEventId), updatedEvent);
+      } else {
+        var id = "ev-" + Date.now();
+        var newEvent = {
+          id: id, title: title, type: selectedType, parentEventId: linked ? parentId : null,
+          dateMode: dateMode, status: status, candidateDates: candidateDates, confirmedDate: confirmedDate,
+          deadline: deadline, location: location, startTime: startTime, fee: fee, invitees: invitees,
+          dateResponses: {}, attendanceResponses: {}, comments: {},
+          createdAt: Date.now(), createdBy: session.name
+        };
+        setJSON(eventDocKey(id), newEvent);
+      }
+      editingEventId = null;
       toggleSheet("event-form-sheet", false);
       renderEventTab(container);
     };
@@ -3325,7 +3387,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     '</div></div>';
   }
 
-  function openEventDetailSheet(container, ev, students){
+  function openEventDetailSheet(container, ev, students, events){
     document.getElementById("event-detail-title").textContent = ev.title;
     var body = document.getElementById("event-detail-body");
 
@@ -3335,24 +3397,28 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       renderEventTab(container);
     }
 
+    var comments = ev.comments || {};
     var html = '<div class="ev-meta" style="margin-bottom:12px;">' +
       '<span class="ev-type-badge">' + esc(EVENT_TYPE_LABEL[ev.type] || ev.type) + '</span>' +
       '<span class="ev-status-badge ' + esc(ev.status) + '">' + esc(EVENT_STATUS_LABEL[ev.status] || ev.status) + '</span><br>' +
       "締切: " + formatDateJp(ev.deadline, false) + '<br>' +
       "場所: " + esc(ev.location || "未設定") +
-    '</div>';
+      (ev.startTime ? '<br>スタート時間: ' + esc(ev.startTime) : '') +
+      (ev.fee ? '<br>費用: ' + esc(ev.fee) : '') +
+    '</div>' +
+    '<button type="button" id="ev-edit-btn" style="background:none;border:1px solid var(--line);color:var(--turf);border-radius:8px;padding:7px 12px;font-size:12.5px;margin-bottom:14px;">✎ イベント内容を編集</button>';
 
     if (ev.status === "open") {
       var dates = ev.candidateDates || [];
-      html += '<table class="ev-tally-table"><thead><tr><th>会員</th>' + dates.map(function(d){ return '<th>' + esc(formatDateJpShort(d)) + '</th>'; }).join("") + '</tr></thead><tbody>' +
+      html += '<table class="ev-tally-table"><thead><tr><th>会員</th>' + dates.map(function(d){ return '<th>' + esc(formatDateJpShort(d)) + '</th>'; }).join("") + '<th>コメント</th></tr></thead><tbody>' +
         ev.invitees.map(function(n){
           var dr = (ev.dateResponses && ev.dateResponses[n]) || {};
-          return '<tr><td style="text-align:left;">' + esc(n) + '</td>' + dates.map(function(d){ return '<td>' + esc(dr[d] || "-") + '</td>'; }).join("") + '</tr>';
+          return '<tr><td style="text-align:left;">' + esc(n) + '</td>' + dates.map(function(d){ return '<td>' + esc(dr[d] || "-") + '</td>'; }).join("") + '<td style="text-align:left;">' + esc(comments[n] || "") + '</td></tr>';
         }).join("") +
       '<tr><td style="text-align:left;font-weight:700;">○の数</td>' + dates.map(function(d){
         var count = ev.invitees.filter(function(n){ return ((ev.dateResponses && ev.dateResponses[n]) || {})[d] === "○"; }).length;
         return '<td style="font-weight:700;">' + count + '</td>';
-      }).join("") + '</tr>' +
+      }).join("") + '<td></td></tr>' +
       '</tbody></table>' +
       '<div class="hint" style="margin-top:10px;">日程を確定すると、その日に「〇」と回答していた人はそのまま参加確定になります。「△」や未回答の人だけ、改めて出欠の確認が必要です。</div>' +
       '<div style="margin-top:10px;">' + dates.map(function(d){
@@ -3360,10 +3426,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       }).join("") + '</div>';
     } else {
       html += "開催日: " + formatDateJp(ev.confirmedDate) + '<br><br>';
-      html += '<table class="ev-tally-table"><thead><tr><th>会員</th><th>出欠</th></tr></thead><tbody>' +
+      html += '<table class="ev-tally-table"><thead><tr><th>会員</th><th>出欠</th><th>コメント</th></tr></thead><tbody>' +
         ev.invitees.map(function(n){
           var a = (ev.attendanceResponses && ev.attendanceResponses[n]) || "未回答";
-          return '<tr><td style="text-align:left;">' + esc(n) + '</td><td>' + esc(a) + '</td></tr>';
+          return '<tr><td style="text-align:left;">' + esc(n) + '</td><td>' + esc(a) + '</td><td style="text-align:left;">' + esc(comments[n] || "") + '</td></tr>';
         }).join("") +
       '</tbody></table>';
       var yes = ev.invitees.filter(function(n){ return (ev.attendanceResponses || {})[n] === "○"; }).length;
@@ -3379,6 +3445,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
     body.innerHTML = html;
     document.getElementById("event-detail-close").onclick = function(){ toggleSheet("event-detail-sheet", false); };
+    document.getElementById("ev-edit-btn").onclick = function(){
+      toggleSheet("event-detail-sheet", false);
+      openEventFormSheet(events, ev);
+      toggleSheet("event-form-sheet", true);
+    };
 
     body.querySelectorAll(".ev-confirm-date-btn").forEach(function(btn){
       btn.onclick = function(){
@@ -3427,7 +3498,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '<span class="ev-type-badge">' + esc(EVENT_TYPE_LABEL[ev.type] || ev.type) + '</span>' +
         (isPending ? '<span class="ev-status-badge open">回答してください</span>' : '<span class="ev-status-badge ' + esc(ev.status) + '">' + esc(ev.status === "done" ? "終了" : "回答済み") + '</span>') +
         '<div class="ev-title">' + esc(ev.title) + '</div>' +
-        '<div class="ev-meta">' + whatToShow + '<br>締切 ' + formatDateJp(ev.deadline, false) + ' ／ 場所 ' + esc(ev.location || "未設定") + '</div>' +
+        '<div class="ev-meta">' + whatToShow + '<br>締切 ' + formatDateJp(ev.deadline, false) + ' ／ 場所 ' + esc(ev.location || "未設定") +
+          (ev.startTime ? " ／ " + esc(ev.startTime) + "〜" : "") + (ev.fee ? " ／ " + esc(ev.fee) : "") +
+        '</div>' +
       '</div>';
     }
 
@@ -3460,22 +3533,37 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     '</div></div>';
   }
 
+  function eventCommentFieldHtml(existingComment){
+    return '<div class="field" style="margin-top:12px;"><label>コメント(任意)</label>' +
+      '<textarea id="ev-resp-comment" placeholder="例: 仕事の調整がつき次第、改めて回答します／飲めませんが参加はしたいです" style="width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--ink);font-family:inherit;font-size:14px;min-height:60px;resize:vertical;">' + esc(existingComment || "") + '</textarea>' +
+    '</div>';
+  }
+
   function openEventResponseSheet(container, ev, studentName){
     document.getElementById("event-response-title").textContent = ev.title;
     var body = document.getElementById("event-response-body");
-    var meta = '<div class="ev-meta" style="margin-bottom:14px;">場所: ' + esc(ev.location || "未設定") + '<br>締切: ' + formatDateJp(ev.deadline, false) + '</div>';
+    var meta = '<div class="ev-meta" style="margin-bottom:14px;">場所: ' + esc(ev.location || "未設定") +
+      (ev.startTime ? '<br>スタート時間: ' + esc(ev.startTime) : '') +
+      (ev.fee ? '<br>費用: ' + esc(ev.fee) : '') +
+      '<br>締切: ' + formatDateJp(ev.deadline, false) + '</div>';
+    var existingComment = (ev.comments && ev.comments[studentName]) || "";
 
     if (ev.status === "open") {
       var dates = ev.candidateDates || [];
       var existing = (ev.dateResponses && ev.dateResponses[studentName]) || {};
       var current = Object.assign({}, existing);
+      // 「この人が行くなら自分も」の参加きっかけになるよう、候補日ごとに現時点で「〇」の人を見えるようにする
       body.innerHTML = meta + '<div class="hint" style="margin-bottom:12px;">各候補日について、参加できるかを選んでください。</div>' +
         dates.map(function(d){
+          var goers = ev.invitees.filter(function(n){ return n !== studentName && ((ev.dateResponses && ev.dateResponses[n]) || {})[d] === "○"; });
           return '<div class="ev-date-picker-row"><div class="ev-date-label">' + esc(formatDateJp(d)) + '</div>' +
             '<div class="ev-resp-btn-row" data-date="' + esc(d) + '">' +
             EVENT_DATE_RESP_OPTIONS.map(function(opt){ return '<button type="button" class="ev-resp-btn' + (current[d] === opt ? " on" : "") + '" data-val="' + esc(opt) + '">' + esc(opt) + '</button>'; }).join("") +
-            '</div></div>';
+            '</div>' +
+            (goers.length > 0 ? '<div class="ev-meta" style="margin-top:8px;">〇: ' + goers.map(esc).join("、") + '</div>' : '') +
+          '</div>';
         }).join("") +
+        eventCommentFieldHtml(existingComment) +
         '<button type="button" id="ev-resp-save" class="btn btn-save" style="margin-top:10px;">回答する</button>';
 
       body.querySelectorAll(".ev-resp-btn-row").forEach(function(row){
@@ -3489,8 +3577,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       });
       document.getElementById("ev-resp-save").onclick = function(){
         if (dates.some(function(d){ return !current[d]; })) { alert("すべての候補日について回答してください。"); return; }
-        var updated = Object.assign({}, ev, { dateResponses: Object.assign({}, ev.dateResponses) });
+        var updated = Object.assign({}, ev, { dateResponses: Object.assign({}, ev.dateResponses), comments: Object.assign({}, ev.comments) });
         updated.dateResponses[studentName] = current;
+        var commentVal = document.getElementById("ev-resp-comment").value.trim();
+        if (commentVal) updated.comments[studentName] = commentVal; else delete updated.comments[studentName];
         setJSON(eventDocKey(ev.id), updated);
         toggleSheet("event-response-sheet", false);
         renderEventTab(container);
@@ -3503,10 +3593,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       var statusLine = alreadyDecided
         ? (currentAttend === "○" ? "参加が確定しています。" : "不参加として登録されています。") + "(内容を変更する場合は選び直してください)"
         : "出欠をお知らせください。";
+      var attendees = ev.invitees.filter(function(n){ return n !== studentName && (ev.attendanceResponses || {})[n] === "○"; });
       body.innerHTML = meta + '<div class="hint" style="margin-bottom:12px;">開催日: ' + esc(formatDateJp(ev.confirmedDate)) + '<br>' + statusLine + '</div>' +
+        (attendees.length > 0 ? '<div class="ev-meta" style="margin-bottom:12px;">参加予定: ' + attendees.map(esc).join("、") + '</div>' : '') +
         '<div class="ev-resp-btn-row" id="ev-attend-row">' +
         EVENT_ATTEND_OPTIONS.map(function(opt){ return '<button type="button" class="ev-resp-btn' + (currentAttend === opt ? " on" : "") + '" data-val="' + esc(opt) + '">' + (opt === "○" ? "○ 参加する" : "× 参加しない") + '</button>'; }).join("") +
         '</div>' +
+        eventCommentFieldHtml(existingComment) +
         '<button type="button" id="ev-resp-save" class="btn btn-save" style="margin-top:10px;">' + (alreadyDecided ? "変更する" : "回答する") + '</button>';
 
       var selected = currentAttend;
@@ -3518,8 +3611,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       });
       document.getElementById("ev-resp-save").onclick = function(){
         if (!selected) { alert("出欠を選択してください。"); return; }
-        var updated = Object.assign({}, ev, { attendanceResponses: Object.assign({}, ev.attendanceResponses) });
+        var updated = Object.assign({}, ev, { attendanceResponses: Object.assign({}, ev.attendanceResponses), comments: Object.assign({}, ev.comments) });
         updated.attendanceResponses[studentName] = selected;
+        var commentVal2 = document.getElementById("ev-resp-comment").value.trim();
+        if (commentVal2) updated.comments[studentName] = commentVal2; else delete updated.comments[studentName];
         setJSON(eventDocKey(ev.id), updated);
         toggleSheet("event-response-sheet", false);
         renderEventTab(container);
