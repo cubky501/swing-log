@@ -624,7 +624,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0930-1030"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 0930-1120"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2978,12 +2978,12 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     box.onclick = function(e){ if (e.target === box) box.remove(); };
   }
 
-  /* ================= EVENT(ゴルフコンペ・飲み会) ================= */
+  /* ================= EVENT(ゴルフ・懇親会) ================= */
   // データはappStateコレクションに "event:<id>" というキーで1イベント=1ドキュメントとして保存する
   // (生徒データと同じ方式。複数イベントの同時作成・更新が他のイベントを巻き込まないようにするため)。
   //
   // event = {
-  //   id, title, type: "golf"|"party"|"other", parentEventId(飲み会がゴルフイベントに紐づく場合のみ),
+  //   id, title, type: "golf"|"party"|"other", parentEventId(懇親会がゴルフイベントに紐づく場合のみ),
   //   dateMode: "scheduling"(候補日から調整) | "decided"(日程確定済みで登録),
   //   status: "open"(日程調整中) | "confirmed"(日程確定・出欠収集中) | "done"(終了・アーカイブ),
   //   candidateDates: ["YYYY-MM-DD", ...](dateMode==="scheduling"の時のみ、最大5件),
@@ -2999,7 +2999,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // }
   var EVENT_PREFIX = "event:";
   function eventDocKey(id){ return EVENT_PREFIX + id; }
-  var EVENT_TYPE_LABEL = { golf: "ゴルフ", party: "飲み会", other: "その他" };
+  var EVENT_TYPE_LABEL = { golf: "ゴルフ", party: "懇親会", other: "その他" };
   var EVENT_STATUS_LABEL = { open: "日程調整中", confirmed: "日程確定", done: "終了" };
   var EVENT_DATE_RESP_OPTIONS = ["○", "△", "×"];
   var EVENT_ATTEND_OPTIONS = ["○", "×"];
@@ -3094,7 +3094,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       (doneList.length > 0 ? '<div class="section-title" style="margin:22px 0 10px;">終了したイベント</div>' + doneList.map(cardHtml).join("") : "");
 
     container.innerHTML =
-      '<div class="topbar"><div><div class="eyebrow">Event</div><div class="h1">イベント</div><div class="sub">ゴルフコンペ・飲み会の日程調整と出欠管理</div></div>' +
+      '<div class="topbar"><div><div class="eyebrow">Event</div><div class="h1">イベント</div><div class="sub">ゴルフ、懇親会などの日程調整・出欠管理</div></div>' +
         '<button id="add-event-btn" class="add-btn">＋ 作成</button>' +
       '</div>' +
       '<div class="content">' + sectionsHtml + '</div>' +
@@ -3125,7 +3125,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '</div>' +
       '<div class="field"><label>種別</label><div class="ev-resp-btn-row">' +
         '<button type="button" class="ev-resp-btn on" data-type="golf">ゴルフ</button>' +
-        '<button type="button" class="ev-resp-btn" data-type="party">飲み会</button>' +
+        '<button type="button" class="ev-resp-btn" data-type="party">懇親会</button>' +
         '<button type="button" class="ev-resp-btn" data-type="other">その他</button>' +
       '</div></div>' +
       '<div class="field" id="ev-parent-field" style="display:none;"><label>ゴルフイベントに紐づける(任意)</label>' +
@@ -3240,7 +3240,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     function applyParentLinkState(){
       var parentId = document.getElementById("ev-parent-select").value;
       var linked = getSelectedType() === "party" && !!parentId;
-      // コンペに紐づけた飲み会は、コンペで確定した日程をそのまま使うため、日程調整UIは隠す
+      // ゴルフイベントに紐づけた懇親会は、コンペで確定した日程をそのまま使うため、日程調整UIは隠す
       document.getElementById("ev-datemode-field").style.display = linked ? "none" : "";
       document.getElementById("ev-candidates-field").style.display = (!linked && getSelectedDateMode() === "scheduling") ? "" : "none";
       document.getElementById("ev-decided-field").style.display = (!linked && getSelectedDateMode() === "decided") ? "" : "none";
@@ -3510,7 +3510,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     if (mine.length === 0) html = '<div class="empty">現在参加予定のイベントはありません。</div>';
 
     container.innerHTML =
-      '<div class="topbar"><div><div class="eyebrow">Event</div><div class="h1">イベント</div><div class="sub">ゴルフコンペ・飲み会の日程・出欠</div></div></div>' +
+      '<div class="topbar"><div><div class="eyebrow">Event</div><div class="h1">イベント</div><div class="sub">ゴルフ、懇親会などの日程調整・出欠</div></div></div>' +
       '<div class="content">' + html + '</div>' +
       eventResponseSheetHtml();
 
