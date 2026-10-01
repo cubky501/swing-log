@@ -599,6 +599,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
                   ];
                   if (lessonPlanData) entries.push({ key: lessonPlanKeyFor(newName), value: lessonPlanData });
                   if (mergedStudent) entries.push({ key: studentDocKey(newName), value: mergedStudent });
+                  if (mergedStudent) {
+                    appendStudentLog(newName, currentActorLabel(), "「名前を変更」による統合(" + oldName + " → " + newName + ")", oldStudentDoc, mergedStudent);
+                  }
                   setJSONBatch(entries, function(){
                     if (mergedStudent) invalidateStudentsListCache();
                     if (mergedStudent && oldName !== newName) {
@@ -637,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1001-1942"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1002-0210"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -769,6 +772,45 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 独立したドキュメント("student:<氏名>")として保存する方式に変更した。
   // これにより、ある生徒への書き込みが他の生徒に一切影響しなくなる。
   function studentDocKey(name){ return "student:" + name; }
+
+  // ===== 会員プロフィールの変更履歴(トレースログ) =====
+  // 「編集した覚えがないのに教室・ふりがなが消えていた」といった事故の原因調査用に、
+  // プロフィールの主要項目が変わった時だけ、誰が・いつ・何を変えたかを記録しておく。
+  // チャット・レッスンノートは対象外(会員ごとに直近30件まで保持)
+  function studentLogKey(name){ return "student-log:" + name; }
+  var STUDENT_LOG_FIELDS = [
+    { key: "name", label: "氏名" },
+    { key: "kana", label: "ふりがな" },
+    { key: "location", label: "教室" },
+    { key: "birthdate", label: "生年月日" },
+    { key: "bestScore", label: "ベストスコア" },
+    { key: "avgScore", label: "平均スコア" },
+    { key: "golfHistory", label: "ゴルフ歴" },
+    { key: "avgRounds", label: "年間ラウンド数" },
+    { key: "healthNotes", label: "健康状態" },
+    { key: "coachNotes", label: "コーチ専用メモ" }
+  ];
+  function appendStudentLog(name, actorLabel, note, beforeDoc, afterDoc){
+    var changes = [];
+    STUDENT_LOG_FIELDS.forEach(function(f){
+      var before = (beforeDoc && beforeDoc[f.key] != null) ? beforeDoc[f.key] : "";
+      var after = (afterDoc && afterDoc[f.key] != null) ? afterDoc[f.key] : "";
+      if (String(before) !== String(after)) {
+        changes.push(f.label + ": 「" + (before === "" ? "(空)" : before) + "」→「" + (after === "" ? "(空)" : after) + "」");
+      }
+    });
+    if (changes.length === 0) return; // 実質的な変更が無ければ記録しない(ノイズを増やさない)
+    getFreshJSON(studentLogKey(name), [], function(logArr){
+      var entry = { at: Date.now(), actor: actorLabel || "不明", note: note || "", changes: changes };
+      var next = [entry].concat(logArr || []).slice(0, 30);
+      setJSON(studentLogKey(name), next);
+    });
+  }
+  function currentActorLabel(){
+    return session && session.role === "admin" ? "運営"
+      : session && session.role === "coach" ? (coachProfile && coachProfile.name || "コーチ")
+      : "不明";
+  }
 
   var studentsListCache = null; // 生徒切り替え時に毎回Firestoreへ問い合わせず、取得済みの一覧を使い回すためのキャッシュ
   function invalidateStudentsListCache(){ studentsListCache = null; }
@@ -1544,7 +1586,11 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   function recordCheckin(studentName, cb, location, preFetchedDoc, kana){
     function proceedWithDoc(s){
       if (!s) { s = { id: "st-" + Date.now(), name: studentName, checkins: [], lastCheckinDate: null, location: location }; }
-      else if (location) { s.location = location; }
+      // 既存会員の教室は、ログイン画面で選んだタブで上書きしない。
+      // 以前はここで毎回上書きしていたため、ログイン画面の教室タブがデフォルト値のまま
+      // (選び直さなくても一見選択されているように見える)だと、コーチが会員管理で設定した
+      // 正しい教室が、ログインするたびに気づかぬうちに書き換わってしまう不具合があった。
+      // 教室の変更はコーチ・管理者が会員管理画面で行う運用に統一する
       if (kana) s.kana = kana; // 入力があった時だけ上書き。未入力なら既存のふりがなを維持する
       if (s.lastCheckinDate !== todayKey()) { s.checkins = (s.checkins || []).concat([todayKey()]); s.lastCheckinDate = todayKey(); }
       setJSON(studentDocKey(studentName), s);
@@ -1916,6 +1962,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         '<button id="student-form-save" class="btn btn-save">保存する</button>' +
       '</div>' +
       '<div id="student-form-danger" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);text-align:center;">' +
+        '<button type="button" id="student-form-history" class="pin-reset-btn" style="margin-right:10px;">変更履歴を見る</button>' +
         '<button type="button" id="student-form-delete" class="pin-reset-btn" style="color:#e0574a;">この会員のデータを削除する</button>' +
       '</div>' +
     '</div></div>';
@@ -2012,6 +2059,24 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
     document.getElementById("student-form-cancel").onclick = function(){ toggleSheet("student-form-sheet", false); };
 
+    document.getElementById("student-form-history").onclick = function(){
+      var name = sheet.dataset.originalName || "";
+      if (!name) return;
+      getFreshJSON(studentLogKey(name), [], function(logArr){
+        if (!logArr || logArr.length === 0) {
+          alert(name + "様の変更履歴はまだありません。");
+          return;
+        }
+        var text = logArr.map(function(entry){
+          var dt = new Date(entry.at);
+          var dateStr = dt.getFullYear() + "/" + (dt.getMonth() + 1) + "/" + dt.getDate() + " " +
+            String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0");
+          return dateStr + " " + entry.actor + (entry.note ? "(" + entry.note + ")" : "") + "\n  " + entry.changes.join("\n  ");
+        }).join("\n\n");
+        alert(name + "様の変更履歴(直近" + logArr.length + "件)\n\n" + text);
+      });
+    };
+
     document.getElementById("student-form-delete").onclick = function(){
       var name = sheet.dataset.originalName || "";
       if (!name) return;
@@ -2106,6 +2171,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           record.healthNotes = healthNotes;
           record.coachNotes = coachNotes;
           if (photoUrl) record.photoUrl = photoUrl;
+
+          appendStudentLog(
+            newName,
+            currentActorLabel(),
+            originalName && originalName !== newName ? "会員情報を編集(改名: " + originalName + " → " + newName + ")" : "会員情報を編集",
+            existing,
+            record
+          );
 
           getFreshJSON(USERS_KEY, {}, function(users){
             var newUsers = Object.assign({}, users);
