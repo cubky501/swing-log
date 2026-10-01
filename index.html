@@ -556,6 +556,19 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     return (s || "").replace(/[\s\u3000]+/g, ""); // 半角/全角スペース等を除去して比較用に正規化
   }
 
+  // newDocの項目が空(未入力)の場合はoldDocの値を残し、入力されている項目だけ上書きする。
+  // 「名前を変更」で統合先(newName)に既に空のレコードが存在していた場合、その空項目で
+  // 正しいデータ(ふりがな・教室など)を消してしまう事故が過去に発生したため、この方式に変更した
+  function mergeStudentDocsPreferNonEmpty(oldDoc, newDoc){
+    var merged = Object.assign({}, oldDoc || {});
+    Object.keys(newDoc || {}).forEach(function(k){
+      var v = newDoc[k];
+      var isEmpty = v === undefined || v === null || v === "";
+      if (!isEmpty) merged[k] = v;
+    });
+    return merged;
+  }
+
   // 旧表記(oldName)で保存されていた生徒データを新表記(newName)へ統合する。
   // 生徒ドキュメント・PIN・保存容量・レッスン・チャットをまとめて書き換える。
   // 生徒は1人1ドキュメントなので、他の生徒のデータには一切触れない
@@ -563,7 +576,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     getFreshJSON(studentDocKey(oldName), null, function(oldStudentDoc){
       getFreshJSON(studentDocKey(newName), null, function(existingNewDoc){
         var mergedStudent = oldStudentDoc
-          ? Object.assign({}, oldStudentDoc, existingNewDoc || {}, { name: newName })
+          ? Object.assign(mergeStudentDocsPreferNonEmpty(oldStudentDoc, existingNewDoc), { name: newName })
           : null;
         getFreshJSON(USERS_KEY, {}, function(users){
           var newUsers = Object.assign({}, users);
@@ -624,7 +637,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 0930-1120"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1001-1942"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
