@@ -640,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1002-0210"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1004-1225"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2099,9 +2099,15 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     document.getElementById("student-form-save").onclick = function(){
       var errBox = document.getElementById("student-form-error");
       errBox.style.display = "none";
+      var originalName = sheet.dataset.originalName || "";
       var lastName = document.getElementById("student-form-lastname").value.trim();
       var firstName = document.getElementById("student-form-firstname").value.trim();
-      if (!lastName || !firstName) { errBox.textContent = "姓・名を入力してください。"; errBox.style.display = "block"; return; }
+      // 編集時は姓・名の入力欄は表示専用(disabled)で、名前の変更は「名前を変更」から行う運用のため、
+      // ここでは氏名の検証・組み立てを行わず、既存の登録名(originalName)をそのまま使う。
+      // 以前はここで姓・名を分割し直していたため、姓と名の間にスペースが無い名前で登録されている
+      // 会員(「岩崎純子」のような1つの文字列での登録)だと、名の欄が空になって disabled のまま
+      // 直せず、常に「姓・名を入力してください」で保存自体ができなくなる不具合があった
+      if (!originalName && (!lastName || !firstName)) { errBox.textContent = "姓・名を入力してください。"; errBox.style.display = "block"; return; }
       var lastKana = normalizeKana(document.getElementById("student-form-lastkana").value);
       var firstKana = normalizeKana(document.getElementById("student-form-firstkana").value);
       if ((lastKana && !isValidHiragana(lastKana)) || (firstKana && !isValidHiragana(firstKana))) {
@@ -2111,10 +2117,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       }
       var kana = (lastKana + " " + firstKana).trim();
       var pin = pinInput.value;
-      var originalName = sheet.dataset.originalName || "";
       if (pin && pin.length !== 4) { errBox.textContent = "PINは4桁で入力するか、空欄のままにしてください。"; errBox.style.display = "block"; return; }
       if (!originalName && !pin) { errBox.textContent = "新規登録時はPINを4桁で入力してください。"; errBox.style.display = "block"; return; }
-      var newName = (lastName + " " + firstName).trim();
+      var newName = originalName || (lastName + " " + firstName).trim();
       var selectedLoc = sheet.querySelector(".loc-tag.on");
       var location = selectedLoc ? selectedLoc.getAttribute("data-loc") : "";
       var bestScore = document.getElementById("student-form-best").value;
