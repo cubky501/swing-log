@@ -640,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1004-1225"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1004-1250"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2132,12 +2132,29 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       var photoFile = photoInput.files[0];
 
       var saveBtn = document.getElementById("student-form-save");
+      var saveWatchdog = null;
+      // 想定外の不具合や通信トラブルで保存処理が完了せず、「保存中…」のままボタンが
+      // 固まり続けてしまう事故を防ぐセーフティネット。正常に完了した場合は finish() 側で解除する
+      function clearSaveWatchdog(){
+        if (saveWatchdog) { clearTimeout(saveWatchdog); saveWatchdog = null; }
+      }
+      function armSaveWatchdog(){
+        clearSaveWatchdog();
+        saveWatchdog = setTimeout(function(){
+          saveBtn.disabled = false;
+          saveBtn.textContent = "保存する";
+          errBox.textContent = "保存がタイムアウトしました。通信状況をご確認のうえ、もう一度お試しください。";
+          errBox.style.display = "block";
+        }, 15000);
+      }
 
       function proceedToSave(){
         saveBtn.disabled = true;
         saveBtn.textContent = "保存中…";
+        armSaveWatchdog();
         if (photoFile) {
           uploadVideo(photoFile, "students/" + sanitizeKey(newName), function(url){ saveWithPhotoUrl(url); }, function(){
+            clearSaveWatchdog();
             saveBtn.disabled = false;
             saveBtn.textContent = "保存する";
             errBox.textContent = "写真のアップロードに失敗しました。";
@@ -2177,13 +2194,18 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           record.coachNotes = coachNotes;
           if (photoUrl) record.photoUrl = photoUrl;
 
-          appendStudentLog(
-            newName,
-            currentActorLabel(),
-            originalName && originalName !== newName ? "会員情報を編集(改名: " + originalName + " → " + newName + ")" : "会員情報を編集",
-            existing,
-            record
-          );
+          // ログ記録自体で想定外の例外が起きても、本来の保存処理を絶対に止めないようにする
+          try {
+            appendStudentLog(
+              newName,
+              currentActorLabel(),
+              originalName && originalName !== newName ? "会員情報を編集(改名: " + originalName + " → " + newName + ")" : "会員情報を編集",
+              existing,
+              record
+            );
+          } catch (logErr) {
+            console.error("変更履歴の記録に失敗(保存処理は続行)", logErr);
+          }
 
           getFreshJSON(USERS_KEY, {}, function(users){
             var newUsers = Object.assign({}, users);
@@ -2193,6 +2215,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
                 { key: USERS_KEY, value: newUsers }
               ], function(err){
                 function finish(){
+                  clearSaveWatchdog();
                   saveBtn.disabled = false;
                   saveBtn.textContent = "保存する";
                   if (err) { errBox.textContent = "保存に失敗しました。もう一度お試しください。"; errBox.style.display = "block"; return; }
@@ -2216,6 +2239,13 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
                 if (originalName && originalName !== newName) delete newUsers[originalName];
                 newUsers[newName] = hashed;
                 finishUsersSave();
+              }).catch(function(e){
+                console.error("PINのハッシュ化に失敗", e);
+                clearSaveWatchdog();
+                saveBtn.disabled = false;
+                saveBtn.textContent = "保存する";
+                errBox.textContent = "PINの保存に失敗しました。もう一度お試しください。";
+                errBox.style.display = "block";
               });
             } else {
               // PIN欄が空欄の場合(編集時のみ到達しうる): 既存のPINハッシュ値をそのまま維持する。
