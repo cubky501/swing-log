@@ -640,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1004-1250"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1006-0350"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2871,7 +2871,10 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
               '<div class="card-body">' +
                 '<div class="card-row"><span class="coach">' + esc(l.coach) + '</span></div>' +
                 '<div class="comment"><span class="label-mini">コーチからのアドバイス</span>' + esc(l.comment) + (l.issueTag ? ' <span class="issue-badge">#' + esc(l.issueTag) + '</span>' : '') + '</div>' +
-                (canAdd ? '<div class="item-actions"><button class="item-edit" data-id="' + esc(l.id) + '">編集</button><button class="item-delete" data-id="' + esc(l.id) + '">削除</button></div>' : '') +
+                (canAdd ? '<div class="item-actions"><button class="item-edit" data-id="' + esc(l.id) + '">編集</button><button class="item-delete" data-id="' + esc(l.id) + '">削除</button>' +
+                  // 動画の端末保存は管理者(運営)のみ。コーチ・会員には表示しない
+                  (session && session.role === "admin" && l.videoUrl ? '<button class="item-save-video" data-id="' + esc(l.id) + '" data-url="' + esc(l.videoUrl) + '" data-date="' + esc(l.date) + '">動画を保存</button>' : '') +
+                  '</div>' : '') +
               '</div>' +
             '</div>';
         }).join("");
@@ -2901,6 +2904,56 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           };
         }
       })(pills[p]);
+    }
+
+    // 管理者のみ: レッスン動画を端末に保存する。
+    // 動画は別ドメイン(R2)にあるため、いったん取得(fetch)してから保存する(R2側のCORS設定が必要)。
+    // iPhoneは「取得に時間がかかった後の共有」がブロックされやすいので、
+    // 1回目のタップで取得(準備)、2回目のタップで保存(共有メニュー/ダウンロード)の2段階にしている
+    var saveVideoBtns = container.querySelectorAll(".item-save-video");
+    for (var sv = 0; sv < saveVideoBtns.length; sv++) {
+      (function(btn){
+        var prepared = null; // { file, blobUrl }
+        btn.onclick = function(){
+          if (prepared) {
+            var file = prepared.file;
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              navigator.share({ files: [file] }).catch(function(e){
+                if (e && e.name === "AbortError") return; // 共有シートを閉じただけ
+                console.error("共有に失敗", e);
+                alert("保存に失敗しました。もう一度お試しください。");
+              });
+            } else {
+              var a = document.createElement("a");
+              a.href = prepared.blobUrl;
+              a.download = file.name;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            }
+            return;
+          }
+          btn.disabled = true;
+          btn.textContent = "準備中…";
+          fetch(btn.getAttribute("data-url")).then(function(res){
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.blob();
+          }).then(function(blob){
+            var type = blob.type || "video/mp4";
+            var ext = type.indexOf("quicktime") >= 0 ? "mov" : (type.indexOf("webm") >= 0 ? "webm" : "mp4");
+            var name = (studentName + "_" + btn.getAttribute("data-date")).replace(/[\\\/:*?"<>|\s]+/g, "_") + "." + ext;
+            var file = new File([blob], name, { type: type });
+            prepared = { file: file, blobUrl: URL.createObjectURL(blob) };
+            btn.disabled = false;
+            btn.textContent = "保存する(準備OK)";
+          }).catch(function(e){
+            console.error("動画の取得に失敗", e);
+            btn.disabled = false;
+            btn.textContent = "動画を保存";
+            alert("動画の取得に失敗しました。通信状況、またはR2のCORS設定をご確認ください。");
+          });
+        };
+      })(saveVideoBtns[sv]);
     }
 
     if (canAdd) {
