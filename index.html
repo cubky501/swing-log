@@ -640,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1006-0350"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1006-0420"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -2990,6 +2990,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       '<div id="lesson-usage-note" class="usage-note"></div>' +
       '<div class="field"><label>動画ファイル(任意)</label>' +
         '<div id="lesson-file-drop" class="file-drop">タップして動画を選択(任意・標準カメラで撮影したものでもOK)<input id="lesson-file" type="file" accept="video/*"></div>' +
+        '<div id="lesson-preview" class="hidden" style="margin-top:8px"><video id="lesson-preview-video" controls playsinline preload="metadata" style="width:100%;max-height:240px;border-radius:8px;background:#000"></video><div class="hint">▲ 選んだ動画をここで再生して確認できます(保存前)</div></div>' +
         '<div class="hint">1本あたり最大' + MAX_FILE_MB + 'MBまで。容量を抑えるコツ: 撮影は10〜20秒程度に短くする / 4K・60fpsではなく1080p・30fpsで撮影する(スロー再生はアプリ側で行うため高フレームレート撮影は不要)。</div>' +
       '</div>' +
       '<div class="field"><label>レッスン日</label><input id="lesson-date" type="date"></div>' +
@@ -3007,6 +3008,22 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
   var editingLessonId = null;
   var selectedIssueTag = null;
+  var lessonPreviewUrl = null;
+  function setLessonPreview(file){
+    var box = document.getElementById("lesson-preview");
+    var v = document.getElementById("lesson-preview-video");
+    if (!box || !v) return;
+    if (lessonPreviewUrl) { try { URL.revokeObjectURL(lessonPreviewUrl); } catch(e){} lessonPreviewUrl = null; }
+    try { v.pause(); } catch(e){}
+    if (file) {
+      lessonPreviewUrl = URL.createObjectURL(file);
+      v.src = lessonPreviewUrl;
+      box.classList.remove("hidden");
+    } else {
+      v.removeAttribute("src"); try { v.load(); } catch(e){}
+      box.classList.add("hidden");
+    }
+  }
   function openLessonSheet(lesson){
     editingLessonId = lesson ? lesson.id : null;
     selectedIssueTag = lesson ? (lesson.issueTag || null) : null;
@@ -3020,6 +3037,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     fileDrop.classList.remove("has-file");
     fileDrop.firstChild.textContent = lesson ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)";
     document.getElementById("lesson-file").value = "";
+    setLessonPreview(null);
     var issueBtns = document.querySelectorAll("#issue-tag-row .issue-tag");
     for (var it = 0; it < issueBtns.length; it++) {
       issueBtns[it].classList.toggle("on", issueBtns[it].getAttribute("data-issue") === selectedIssueTag);
@@ -3059,19 +3077,21 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         alert("動画が大きすぎます(上限" + MAX_FILE_MB + "MB)。撮影時間を短くするか、画質設定を下げてもう一度お試しください。");
         e.target.value = "";
         selectedFile = null;
+        setLessonPreview(null);
         fileDrop.classList.remove("has-file");
         fileDrop.firstChild.textContent = editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)";
         updateSave();
         return;
       }
       selectedFile = f;
+      setLessonPreview(selectedFile);
       fileDrop.classList.toggle("has-file", !!selectedFile);
       fileDrop.firstChild.textContent = selectedFile ? ("選択済み: " + selectedFile.name + "(" + formatMB(selectedFile.size / (1024 * 1024)) + ")") : (editingLessonId ? "動画を変更する場合のみ選択(任意)" : "タップして動画を選択(任意・標準カメラで撮影したものでもOK)");
       updateSave();
     };
     tagInput.oninput = updateSave;
     commentInput.oninput = updateSave;
-    cancelBtn.onclick = function(){ toggleSheet("lesson-sheet", false); };
+    cancelBtn.onclick = function(){ setLessonPreview(null); toggleSheet("lesson-sheet", false); };
     saveBtn.onclick = function(){
       if (saveBtn.disabled) return;
       var tag = tagInput.value.trim(), comment = commentInput.value.trim();
