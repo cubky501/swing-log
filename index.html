@@ -640,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1006-0420"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1013-0830"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -1313,6 +1313,8 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       if (st.tab === "student") {
         getFreshJSON(studentDocKey(resolvedName), null, function(s){
           studentDoc = s; studentLoaded = true; tryProceed();
+        }, function(){
+          studentDoc = DOC_LOAD_FAILED; studentLoaded = true; tryProceed();
         });
       }
     }
@@ -1583,8 +1585,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     });
   }
 
+  // 会員データの読み込みに失敗したことを表す目印(「データが存在しない(null)」とは区別する)
+  var DOC_LOAD_FAILED = { __loadFailed: true };
   function recordCheckin(studentName, cb, location, preFetchedDoc, kana){
     function proceedWithDoc(s){
+      // 読み込み失敗(通信タイムアウト等)のときに「空の新規データ」を作って保存すると、
+      // 既存のふりがな・教室・生年月日などが丸ごと消えてしまう不具合があった。
+      // 失敗時はチェックインの記録だけ諦め、既存データには一切書き込まない
+      if (s === DOC_LOAD_FAILED) { cb(); return; }
       if (!s) { s = { id: "st-" + Date.now(), name: studentName, checkins: [], lastCheckinDate: null, location: location }; }
       // 既存会員の教室は、ログイン画面で選んだタブで上書きしない。
       // 以前はここで毎回上書きしていたため、ログイン画面の教室タブがデフォルト値のまま
@@ -1600,7 +1608,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     // ログイン処理側で既に生徒ドキュメントを取得済みの場合は、二重に読みに行かず使い回す
     // (Firestoreへの往復を1回減らし、ログインの体感速度を上げるため)
     if (preFetchedDoc !== undefined) { proceedWithDoc(preFetchedDoc); return; }
-    getFreshJSON(studentDocKey(studentName), null, proceedWithDoc);
+    getFreshJSON(studentDocKey(studentName), null, proceedWithDoc, function(){ proceedWithDoc(DOC_LOAD_FAILED); });
   }
 
   /* ================= SHELL ================= */
