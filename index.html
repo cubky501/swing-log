@@ -640,7 +640,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1013-0830"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1013-1845"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -3277,13 +3277,21 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
 
     function cardHtml(ev){
       var respCount = ev.invitees.filter(function(n){ return eventHasResponded(ev, n); }).length;
+      // 終了したイベントは「回答数」ではなく実際の出欠(参加・不参加・未回答)の人数を出す
+      var attMap = ev.attendanceResponses || {};
+      var attYes = ev.invitees.filter(function(n){ return attMap[n] === "○"; }).length;
+      var attNo = ev.invitees.filter(function(n){ return attMap[n] === "×"; }).length;
+      var attPending = ev.invitees.length - attYes - attNo;
+      var countText = ev.status === "done"
+        ? '参加 <b>' + attYes + '名</b> ／ 不参加 ' + attNo + '名 ／ 未回答 ' + attPending + '名'
+        : '回答 ' + respCount + '/' + ev.invitees.length + '名';
       return '<div class="ev-card" data-id="' + esc(ev.id) + '">' +
         '<span class="ev-type-badge">' + esc(EVENT_TYPE_LABEL[ev.type] || ev.type) + '</span>' +
         '<span class="ev-status-badge ' + esc(ev.status) + '">' + esc(EVENT_STATUS_LABEL[ev.status] || ev.status) + '</span>' +
         '<div class="ev-title">' + esc(ev.title) + '</div>' +
         '<div class="ev-meta">' +
           (ev.status === "open" ? "候補日 " + (ev.candidateDates || []).map(function(d){ return formatDateJpShort(d); }).join("・") : "開催日 " + formatDateJp(ev.confirmedDate)) + '<br>' +
-          "締切 " + formatDateJp(ev.deadline, false) + ' ／ 回答 ' + respCount + '/' + ev.invitees.length + '名' + '<br>' +
+          "締切 " + formatDateJp(ev.deadline, false) + ' ／ ' + countText + '<br>' +
           "場所 " + esc(ev.location || "未設定") +
           (ev.startTime ? " ／ " + esc(ev.startTime) + "〜" : "") + (ev.fee ? " ／ " + esc(ev.fee) : "") +
         '</div>' +
