@@ -275,6 +275,8 @@
   .navbar{position:fixed;bottom:0;left:0;right:0;max-width:406px;margin:0 auto;height:78px;background:rgba(18,22,15,.92);border-top:1px solid var(--line);display:flex;padding-bottom:calc(16px + env(safe-area-inset-bottom));z-index:10;}
   .navitem{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--ink-dim);border:none;background:none;}
   .navitem.active{color:var(--turf);}
+  .navitem{position:relative;}
+  .nav-badge{position:absolute;top:8px;left:calc(50% + 14px);min-width:17px;height:17px;padding:0 5px;border-radius:999px;background:var(--danger);color:#fff;font-style:normal;font-size:11px;font-weight:700;line-height:17px;text-align:center;box-sizing:border-box;}
   .navitem span{font-size:11px;}
   .fab-stack{position:fixed;top:calc(12px + env(safe-area-inset-top));right:12px;z-index:15;display:flex;flex-direction:row;gap:8px;align-items:center;}
   .pin-fab{background:rgba(27,33,26,.85);border:1px solid var(--line);color:var(--sand);font-family:monospace;font-size:10.5px;padding:5px 10px;border-radius:999px;}
@@ -408,6 +410,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   function studentChatLastReadKeyFor(name){ return "chat-lastread:" + name; }
   function markChatReadByStudent(studentName){
     setJSON(studentChatLastReadKeyFor(studentName), Date.now());
+    setTimeout(function(){ refreshChatBadge(); }, 1500);
   }
 
   // iOS Safariは、ホーム画面に追加してそのアイコンから開いた状態(スタンドアロンモード)でないと
@@ -640,7 +643,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1013-1845"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1021-1715"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -957,6 +960,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     getFreshJSON(key, {}, function(map){
       map[studentName] = Date.now();
       setJSON(key, map);
+      setTimeout(function(){ refreshChatBadge(); }, 1500);
     });
   }
   function formatMB(mb){ return mb >= 1024 ? (mb / 1024).toFixed(1) + "GB" : Math.round(mb) + "MB"; }
@@ -1661,7 +1665,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       : [{ id: "mypage", label: "マイページ" }, { id: "feed", label: "レッスンノート" }, { id: "chat", label: "チャット" }, { id: "event", label: "イベント" }];
 
     var navHtml = tabs.map(function(t){
-      return '<button class="navitem ' + (tab === t.id ? "active" : "") + '" data-tab="' + t.id + '"><span>' + t.label + '</span></button>';
+      return '<button class="navitem ' + (tab === t.id ? "active" : "") + '" data-tab="' + t.id + '"><span>' + t.label + '</span>' + (t.id === "chat" ? '<i class="nav-badge" id="chat-nav-badge" style="display:none;"></i>' : '') + '</button>';
     }).join("");
 
     root.innerHTML =
@@ -1700,6 +1704,45 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     else if (tab === "chat") renderChat(screen);
     else if (tab === "roster") renderRoster(screen);
     else if (tab === "event") renderEventTab(screen);
+    refreshChatBadge();
+  }
+
+  // 未読チャットの件数を、チャットタブのバッジとアプリアイコンのバッジ(対応端末のみ)に反映する。
+  // 以前はチャット画面を開かないと未読の有無が分からず、見落として放置される恐れがあったため、
+  // どの画面にいても分かるようにしている。
+  //  コーチ/管理者: 生徒からの新着で、自分がまだ開いていない会員の人数
+  //  会員: コーチからの新着で、自分がまだ開いていなければ 1
+  function refreshChatBadge(){
+    if (!session) return;
+    var role = session.role, myName = session.name;
+    function apply(n){
+      var el = document.getElementById("chat-nav-badge");
+      if (el) {
+        if (n > 0) { el.textContent = n > 99 ? "99+" : String(n); el.style.display = ""; }
+        else { el.style.display = "none"; }
+      }
+      try {
+        if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n);
+        else if (navigator.clearAppBadge) navigator.clearAppBadge();
+      } catch (e) {}
+    }
+    getFreshJSON(CHAT_ACTIVITY_KEY, {}, function(activity){
+      if (isStaff()) {
+        getFreshJSON(chatLastReadKeyFor(role), {}, function(lastRead){
+          var n = 0;
+          Object.keys(activity || {}).forEach(function(name){
+            var a = activity[name];
+            if (a && a.lastFrom === "student" && (!lastRead[name] || a.lastMessageAt > lastRead[name])) n++;
+          });
+          apply(n);
+        }, function(){});
+      } else {
+        getFreshJSON(studentChatLastReadKeyFor(myName), 0, function(lastRead){
+          var a = (activity || {})[myName];
+          apply(a && a.lastFrom === "coach" && a.lastMessageAt > (lastRead || 0) ? 1 : 0);
+        }, function(){});
+      }
+    }, function(){});
   }
 
   /* ---- PIN変更 ---- */
@@ -4771,6 +4814,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   });
 
   render();
+  // 未読バッジは、アプリを開いている間は1分ごと、アプリに戻ってきたときにも更新する
+  setInterval(function(){ if (!document.hidden) refreshChatBadge(); }, 60000);
+  document.addEventListener("visibilitychange", function(){ if (!document.hidden) refreshChatBadge(); });
   if (session && session.role === "student") recordCheckin(session.name, function(){});
   setupForegroundNotifications();
   // 通知ボタンの表示を「本当に有効かどうか」の判定結果に更新する(起動直後は一旦仮の表示のまま
