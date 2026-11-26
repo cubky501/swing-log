@@ -643,7 +643,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   // 「名前を変更」ボタンから、コーチが確認しながら手動でmigrateStudentNameを呼ぶ運用にしている。
   var COACH_PIN_KEY = "__coach__";
   var ADMIN_PIN_KEY = "__admin__"; // 運営(管理者)専用PIN。平山さんのPINとは完全に別物
-  var BUILD_TAG = "build 1110-1730"; // デプロイのたびにここが変わる(反映確認用)
+  var BUILD_TAG = "build 1126-1530"; // デプロイのたびにここが変わる(反映確認用)
   var MAX_FILE_MB = 60;      // 動画1本あたりの上限
   var STUDENT_CAP_MB = 20480;  // 生徒1人あたりの合計保存容量の上限(R2はegressが無料なので、保存量が増えてもコストはほぼ線形にしか増えない。実質困らない水準として20GBに設定)
 
@@ -3240,6 +3240,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
   //   invitees: [会員名, ...],
   //   dateResponses: { 会員名: { "YYYY-MM-DD": "○"|"△"|"×" } },
   //   attendanceResponses: { 会員名: "○"|"×" },
+  //   attendanceBy: { 会員名: "コーチ名"|"運営" }(コーチ・管理者が代理で入力した出欠のみ。本人が回答し直すと消える),
   //   comments: { 会員名: string }(回答時の自由コメント、任意),
   //   createdAt, createdBy
   // }
@@ -3318,13 +3319,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
     return ad ? (da < db_ ? 1 : -1) : (da < db_ ? -1 : 1);
   }
 
-  function renderEventTab(container){
+  function renderEventTab(container, afterRender){
     container.innerHTML = '<div class="content"><div class="empty">読み込み中…</div></div>';
     listAllEvents(function(events){
       if (isStaff()) {
         listAllStudents(function(students){
           drawEventListStaff(container, events, students);
-        }, function(){ drawEventListStaff(container, events, []); });
+          if (afterRender) afterRender(events, students);
+        }, function(){ drawEventListStaff(container, events, []); if (afterRender) afterRender(events, []); });
       } else {
         drawEventListMember(container, events, session.name);
       }
@@ -3719,7 +3721,14 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       html += '<table class="ev-tally-table"><thead><tr><th>会員</th><th>出欠</th><th>コメント</th></tr></thead><tbody>' +
         ev.invitees.map(function(n){
           var a = (ev.attendanceResponses && ev.attendanceResponses[n]) || "未回答";
-          return '<tr><td style="text-align:left;">' + esc(n) + '</td><td>' + esc(a) + '</td><td style="text-align:left;">' + esc(comments[n] || "") + '</td></tr>';
+          var by = a !== "未回答" && ev.attendanceBy && ev.attendanceBy[n];
+          var byNote = by ? '<div style="font-size:10.5px;color:var(--sand);margin-top:2px;">' + esc(by) + 'が入力</div>' : '';
+          var cell = ev.status === "confirmed"
+            ? '<select class="ev-proxy-select" data-name="' + esc(n) + '" style="background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--ink);padding:4px 6px;font-size:13px;">' +
+                ["未回答", "○", "×"].map(function(o){ return '<option value="' + o + '"' + (o === a ? " selected" : "") + '>' + o + '</option>'; }).join("") +
+              '</select>' + byNote
+            : esc(a) + byNote;
+          return '<tr><td style="text-align:left;">' + esc(n) + '</td><td>' + cell + '</td><td style="text-align:left;">' + esc(comments[n] || "") + '</td></tr>';
         }).join("") +
       '</tbody></table>';
       var yes = ev.invitees.filter(function(n){ return (ev.attendanceResponses || {})[n] === "○"; }).length;
@@ -3727,6 +3736,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       var pending = ev.invitees.length - yes - no;
       html += '<div class="ev-meta" style="margin-top:10px;">参加 ' + yes + (eventCapacity(ev) ? '/' + eventCapacity(ev) : '') + '名 ／ 不参加 ' + no + '名 ／ 未回答 ' + pending + '名' + (eventCapacity(ev) && yes >= eventCapacity(ev) ? ' <b style="color:var(--danger);">(満員)</b>' : '') + '</div>';
       if (pending > 0) html += '<div class="hint" style="margin-top:6px;">未回答の方には、チャットで直接〇か×を確認するのがおすすめです。</div>';
+      if (ev.status === "confirmed") html += '<div class="hint" style="margin-top:6px;">LINEや口頭で返事をもらった方は、出欠の欄から代わりに入力できます(「○○が入力」と表示され、本人が回答し直すとそちらが優先されます)。</div>';
       if (ev.status === "confirmed") {
         html += '<button type="button" id="ev-archive-btn" class="btn btn-save" style="margin-top:14px;">このイベントを終了にする</button>';
       }
@@ -3759,6 +3769,38 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
         });
         var updated = Object.assign({}, ev, { status: "confirmed", confirmedDate: d, attendanceResponses: attendanceResponses });
         saveAndRerender(updated);
+      };
+    });
+    body.querySelectorAll(".ev-proxy-select").forEach(function(sel){
+      sel.onchange = function(){
+        var name = sel.getAttribute("data-name");
+        var val = sel.value;
+        sel.disabled = true;
+        // 他の会員の回答を上書きしないよう、保存の直前に最新のイベントを読み直す
+        getFreshJSON(eventDocKey(ev.id), null, function(fresh){
+          var base = fresh || ev;
+          var capN = eventCapacity(base);
+          var prev = (base.attendanceResponses || {})[name];
+          if (val === "○" && capN && prev !== "○") {
+            var othersYes = (base.invitees || []).filter(function(n){ return n !== name && (base.attendanceResponses || {})[n] === "○"; }).length;
+            if (othersYes >= capN && !confirm("定員(" + capN + "名)に達しています。それでも " + name + " さんを「参加」にしますか?")) {
+              sel.value = prev || "未回答"; sel.disabled = false; return;
+            }
+          }
+          var updated = Object.assign({}, base, { attendanceResponses: Object.assign({}, base.attendanceResponses), attendanceBy: Object.assign({}, base.attendanceBy) });
+          if (val === "未回答") { delete updated.attendanceResponses[name]; delete updated.attendanceBy[name]; }
+          else { updated.attendanceResponses[name] = val; updated.attendanceBy[name] = currentActorLabel(); }
+          setJSON(eventDocKey(ev.id), updated);
+          // 一覧を更新しつつ、続けて他の人も入力できるよう、詳細画面は開いたままにする
+          renderEventTab(container, function(evs, studs){
+            var latest = evs.filter(function(x){ return x.id === ev.id; })[0];
+            var shown = Object.assign({}, latest || updated, { attendanceResponses: updated.attendanceResponses, attendanceBy: updated.attendanceBy });
+            openEventDetailSheet(container, shown, studs, evs);
+          });
+        }, function(){
+          sel.value = (ev.attendanceResponses || {})[name] || "未回答"; sel.disabled = false;
+          alert("通信に失敗しました。もう一度お試しください。");
+        });
       };
     });
     var archiveBtn = document.getElementById("ev-archive-btn");
@@ -3894,8 +3936,9 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
       // 日程調整の時点で「〇」「×」と回答済みの人は、その回答がそのまま出欠として引き継がれているので、
       // ここでは「回答してください」ではなく「確定しています(変更も可能)」という案内にする
       var alreadyDecided = !!currentAttend;
+      var proxyBy = alreadyDecided && ev.attendanceBy && ev.attendanceBy[studentName];
       var statusLine = alreadyDecided
-        ? (currentAttend === "○" ? "参加が確定しています。" : "不参加として登録されています。") + "(内容を変更する場合は選び直してください)"
+        ? (proxyBy ? proxyBy + "が代わりに入力しています。" : "") + (currentAttend === "○" ? "参加が確定しています。" : "不参加として登録されています。") + "(内容を変更する場合は選び直してください)"
         : "出欠をお知らせください。";
       var attendees = ev.invitees.filter(function(n){ return n !== studentName && (ev.attendanceResponses || {})[n] === "○"; });
       var capNow = eventCapacity(ev);
@@ -3937,6 +3980,7 @@ let authReady = withRetry(function(){ return withTimeout(signInAnonymously(auth)
           }
           var updated = Object.assign({}, base, { attendanceResponses: Object.assign({}, base.attendanceResponses), comments: Object.assign({}, base.comments) });
           updated.attendanceResponses[studentName] = selected;
+          if (updated.attendanceBy) { updated.attendanceBy = Object.assign({}, updated.attendanceBy); delete updated.attendanceBy[studentName]; } // 本人の回答が優先される
           if (commentVal2) updated.comments[studentName] = commentVal2; else delete updated.comments[studentName];
           setJSON(eventDocKey(ev.id), updated);
           toggleSheet("event-response-sheet", false);
